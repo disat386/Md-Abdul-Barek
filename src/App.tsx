@@ -42,7 +42,7 @@ import { collection, query, where, orderBy, limit, onSnapshot, getDocs } from 'f
 // --- PREVIEW LINKS CONFIGURATION ---
 // Replace these with your actual AI Studio Preview URLs (.run.app)
 const PREVIEW_LINKS = {
-  audiobook: 'https://ais-pre-ze2npvanrqlgyicgax5qo6-7801728734.asia-southeast1.run.app',
+  audiobook: 'https://audiobook.auurio.com',
   motion: 'https://ais-pre-f5hb6v5saipeg6gnxnp35p-7801728734.asia-southeast1.run.app',
   marketra: 'https://ais-pre-8b4f02ddb21bb2d198fb0a42cb5b8dd1-7801728734.asia-southeast1.run.app',
   news: 'https://news-preview.run.app',
@@ -58,7 +58,7 @@ const tools = [
     color: 'text-orange-500',
     bg: 'bg-orange-500/10',
     url: PREVIEW_LINKS.audiobook,
-    subdomain: 'audio.auurio.com'
+    subdomain: 'audiobook.auurio.com'
   },
   {
     id: 'auurio-motion',
