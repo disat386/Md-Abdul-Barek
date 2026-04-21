@@ -38,4 +38,4 @@ jobs:
           local-dir: ./dist/
           server-dir: ./
           log-level: verbose
-          state-name: .ftp-deploy-sync-force-new-v1.json
+          state-name: .ftp-deploy-sync-absolute-v1.json
