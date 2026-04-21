@@ -38,4 +38,4 @@ jobs:
           local-dir: ./dist/
           server-dir: ./
           log-level: verbose
-          state-name: .ftp-deploy-sync-root-v1.json
+          state-name: .ftp-deploy-sync-final-v1.json
