@@ -3,7 +3,8 @@ name: Deploy to Hostinger
 on:
   push:
     branches:
-      - main # Change this if your default branch is different (e.g., 'master')
+      - main
+  workflow_dispatch: # This adds a manual "Run workflow" button in GitHub Actions
 
 jobs:
   build-and-deploy:
