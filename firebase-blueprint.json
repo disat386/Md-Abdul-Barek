@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Centralized user profile with subscription and credit information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth." },
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "displayName": { "type": "string", "description": "User's display name." },
+        "photoURL": { "type": "string", "format": "uri", "description": "User's profile picture URL." },
+        "subscriptionPlan": {
+          "type": "string",
+          "enum": ["free", "pro", "enterprise"],
+          "description": "Current subscription tier."
+        },
+        "credits": { "type": "number", "description": "Remaining credits shared across all tools." },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "User's role in the ecosystem." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user first joined." }
+      },
+      "required": ["uid", "email", "subscriptionPlan", "credits", "role"]
+    },
+    "UsageLog": {
+      "title": "Usage Log",
+      "description": "Record of credit usage across different tools.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User who used the tool." },
+        "toolId": { "type": "string", "description": "Identifier for the tool (e.g., 'audiobook', 'video')." },
+        "action": { "type": "string", "description": "Specific action performed." },
+        "creditsUsed": { "type": "number", "description": "Number of credits consumed." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the action occurred." }
+      },
+      "required": ["uid", "toolId", "creditsUsed", "timestamp"]
+    },
+    "PurchaseHistory": {
+      "title": "Purchase History",
+      "description": "Record of credit package purchases and their status.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User who made the purchase." },
+        "packageName": { "type": "string", "description": "Name of the credit package." },
+        "amountPaid": { "type": "number", "description": "Total amount paid." },
+        "transactionId": { "type": "string", "description": "Unique transaction identifier." },
+        "status": { 
+          "type": "string", 
+          "enum": ["Pending", "Approved", "Rejected"],
+          "description": "Current state of the purchase."
+        },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the purchase was initiated." }
+      },
+      "required": ["uid", "packageName", "amountPaid", "transactionId", "status", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents."
+    },
+    "/usage_logs/{logId}": {
+      "schema": "UsageLog",
+      "description": "Credit usage history."
+    },
+    "/purchase_history/{id}": {
+      "schema": "PurchaseHistory",
+      "description": "User purchase logs."
+    }
+  }
+}
