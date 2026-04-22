@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MessageSquare, X, Send, User, Bot, Loader2 } from 'lucide-react';
+import { geminiService } from '../services/geminiService';
 
 interface Message {
   role: 'user' | 'bot';
@@ -48,23 +49,19 @@ export const ChatBot = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/gemini', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          prompt: userMessage,
-          history: messages.map(m => ({
+      const text = await geminiService.generateContentWithRotation({
+        model: "gemini-1.5-flash",
+        contents: [
+          { role: 'user', parts: [{ text: "System Instruction: " + SYSTEM_INSTRUCTION }] },
+          ...messages.map(m => ({
             role: m.role === 'user' ? 'user' : 'model',
             parts: [{ text: m.content }]
-          })),
-          systemInstruction: SYSTEM_INSTRUCTION
-        })
+          })), 
+          { role: 'user', parts: [{ text: userMessage }] }
+        ]
       });
 
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
-
-      const botResponse = data.text || "I'm sorry, I couldn't process that request.";
+      const botResponse = text || "I'm sorry, I couldn't process that request.";
       setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
     } catch (error) {
       console.error('ChatBot Error:', error);

@@ -3,14 +3,15 @@ import { motion } from 'motion/react';
 import { useFirebase } from './FirebaseProvider';
 import { db } from '../firebase';
 import { collection, query, getDocs, doc, setDoc, updateDoc, deleteDoc, increment, serverTimestamp, orderBy } from 'firebase/firestore';
-import { Users, Key, Package, Tag, ShieldAlert, CheckCircle, X, CreditCard, Settings } from 'lucide-react';
+import { Users, Key, Package, Tag, ShieldAlert, CheckCircle, X, CreditCard, Settings, Trash2, Plus } from 'lucide-react';
 
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const { profile } = useFirebase();
   const [activeTab, setActiveTab] = useState<'users' | 'api' | 'packages' | 'coupons' | 'payments' | 'settings'>('users');
   
   const [users, setUsers] = useState<any[]>([]);
-  const [geminiKeys, setGeminiKeys] = useState('');
+  const [geminiKeys, setGeminiKeys] = useState<string[]>([]);
+  const [newGeminiKey, setNewGeminiKey] = useState('');
   const [huggingfaceKey, setHuggingfaceKey] = useState('');
   const [packages, setPackages] = useState<any[]>([]);
   const [coupons, setCoupons] = useState<any[]>([]);
@@ -41,8 +42,12 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         const keySnap = await getDocs(collection(db, 'api_keys'));
         const geminiDoc = keySnap.docs.find(d => d.id === 'gemini');
         if (geminiDoc) {
-          const keys = geminiDoc.data().keys || [];
-          setGeminiKeys(Array.isArray(keys) ? keys.join('\n') : (geminiDoc.data().key || ''));
+          const data = geminiDoc.data();
+          if (Array.isArray(data.keys)) {
+            setGeminiKeys(data.keys);
+          } else if (data.key) {
+            setGeminiKeys([data.key]);
+          }
         }
         const hfDoc = keySnap.docs.find(d => d.id === 'huggingface');
         if (hfDoc) setHuggingfaceKey(hfDoc.data().key);
@@ -87,17 +92,27 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
   const saveApiKeys = async () => {
     try {
-      const keysList = geminiKeys.split('\n').map(k => k.trim()).filter(k => k);
-      await setDoc(doc(db, 'api_keys', 'gemini'), { 
-        keys: keysList, 
-        service: 'gemini',
-        updatedAt: serverTimestamp() 
-      });
+      await setDoc(doc(db, 'api_keys', 'gemini'), { keys: geminiKeys, service: 'gemini' });
       await setDoc(doc(db, 'api_keys', 'huggingface'), { key: huggingfaceKey.trim(), service: 'huggingface' });
+      setNewGeminiKey('');
       showMessage("API Keys saved successfully", "success");
     } catch (error) {
       showMessage("Failed to save API keys", "error");
     }
+  };
+
+  const addGeminiKey = () => {
+    if (!newGeminiKey.trim()) return;
+    if (geminiKeys.includes(newGeminiKey.trim())) {
+      showMessage("Key already exists", "error");
+      return;
+    }
+    setGeminiKeys([...geminiKeys, newGeminiKey.trim()]);
+    setNewGeminiKey('');
+  };
+
+  const removeGeminiKey = (keyToRemove: string) => {
+    setGeminiKeys(geminiKeys.filter(k => k !== keyToRemove));
   };
 
   const saveSettings = async () => {
@@ -314,7 +329,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                             <div className="flex items-center gap-2">
                               {isSuperAdmin && u.email !== profile?.email && (
                                 <select 
-                                  value={u.role}
+                                  value={u.role || 'user'}
                                   onChange={(e) => updateUserRole(u.id, e.target.value)}
                                   className="bg-black border border-white/20 rounded px-2 py-1 text-xs outline-none focus:border-orange-500"
                                 >
@@ -352,34 +367,68 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
             {activeTab === 'api' && isSuperAdmin && (
               <div className="max-w-2xl">
                 <h2 className="text-xl font-bold mb-2">Global API Keys</h2>
-                <p className="text-white/60 text-sm mb-6">Set the ecosystem API keys here. All tools in the Auurio ecosystem will fetch and use these keys.</p>
+                <p className="text-white/60 text-sm mb-6">Manage multiple Gemini API keys for automatic rotation and unlimited generation.</p>
                 
                 <div className="space-y-6">
                   <div>
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Gemini API Keys (One per line for rotation)</label>
-                    <textarea
-                      value={geminiKeys}
-                      onChange={(e) => setGeminiKeys(e.target.value)}
-                      className="w-full h-32 bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500 resize-none font-mono text-sm"
-                      placeholder="AIzaSy... (First Key)&#10;AIzaSy... (Second Key)"
-                    />
-                    <p className="text-[10px] text-white/40 mt-2 italic">System will automatically rotate between these keys if limits are hit.</p>
+                    <label className="block text-xs font-medium text-white/60 mb-3 uppercase tracking-wider">Gemini API Keys Pool</label>
+                    
+                    <div className="space-y-2 mb-4">
+                      {geminiKeys.map((key, idx) => (
+                        <div key={idx} className="flex gap-2 items-center bg-black/40 p-2 rounded-lg border border-white/5">
+                          <input
+                            type="password"
+                            value={key}
+                            readOnly
+                            className="flex-grow bg-transparent border-none text-white/80 text-sm focus:ring-0"
+                          />
+                          <button 
+                            onClick={() => removeGeminiKey(key)}
+                            className="p-1 px-2 text-red-500 hover:bg-red-500/10 rounded transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {geminiKeys.length === 0 && (
+                        <p className="text-xs text-white/30 italic py-2 text-center">No Gemini keys added yet.</p>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={newGeminiKey}
+                        onChange={(e) => setNewGeminiKey(e.target.value)}
+                        className="flex-grow bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
+                        placeholder="Add new Gemini API Key..."
+                      />
+                      <button 
+                        onClick={addGeminiKey}
+                        className="p-3 px-4 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors shrink-0"
+                        title="Add Key to Pool"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Hugging Face API Key</label>
+                  <div className="pt-4 border-t border-white/5">
+                    <label className="block text-xs font-medium text-white/60 mb-2 uppercase tracking-wider">Hugging Face API Key</label>
                     <input
                       type="password"
-                      value={huggingfaceKey}
+                      value={huggingfaceKey || ''}
                       onChange={(e) => setHuggingfaceKey(e.target.value)}
                       className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
                       placeholder="hf_..."
                     />
                   </div>
 
-                  <button onClick={saveApiKeys} className="bg-orange-500 text-black font-bold px-6 py-3 rounded-xl hover:bg-orange-400">
-                    Save API Keys
-                  </button>
+                  <div className="pt-4 flex gap-4">
+                    <button onClick={saveApiKeys} className="flex-grow bg-orange-500 text-black font-bold px-6 py-3 rounded-xl hover:bg-orange-400 transition-colors">
+                      Save All Keys
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -395,7 +444,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">bKash Number (Personal/Agent)</label>
                     <input
                       type="text"
-                      value={bkashNumber}
+                      value={bkashNumber || ''}
                       onChange={(e) => setBkashNumber(e.target.value)}
                       className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
                       placeholder="017XXXXXXXX"

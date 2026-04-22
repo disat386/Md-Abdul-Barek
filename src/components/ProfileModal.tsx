@@ -13,14 +13,22 @@ interface ProfileModalProps {
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
   const { user, profile, deleteUserAccount } = useFirebase();
-  const [name, setName] = useState(profile?.displayName || '');
-  const [photoURL, setPhotoURL] = useState(profile?.photoURL || '');
-  const [phoneNumber, setPhoneNumber] = useState(profile?.phoneNumber || '');
+  const [name, setName] = useState('');
+  const [photoURL, setPhotoURL] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (profile) {
+      setName(profile.displayName || '');
+      setPhotoURL(profile.photoURL || '');
+      setPhoneNumber(profile.phoneNumber || '');
+    }
+  }, [profile, isOpen]);
 
   if (!isOpen) return null;
 

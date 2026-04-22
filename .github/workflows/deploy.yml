@@ -36,6 +36,6 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: ./
+          server-dir: ./audiobook/
           log-level: verbose
-          state-name: .ftp-deploy-sync-absolute-v1.json
+          state-name: .ftp-deploy-sync-audiobook-v1.json

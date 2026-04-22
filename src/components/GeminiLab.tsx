@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, Send, Loader2, Brain, Zap, Image as ImageIcon, Code, Type, X } from 'lucide-react';
+import { Sparkles, Send, Loader2, Brain, Zap, Image as ImageIcon, Code, Type, X, FlaskConical } from 'lucide-react';
+import { geminiService } from '../services/geminiService';
+import * as GenerativeAI from "@google/generative-ai";
 
 interface GeminiLabProps {
   isOpen: boolean;
@@ -12,11 +14,11 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
   const [prompt, setPrompt] = useState('');
   const [result, setResult] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview');
+  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
 
   const models = [
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', desc: 'Fast, efficient, and great for common tasks.', type: 'Free Tier' },
-    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', desc: 'Complex reasoning and high-level tasks.', type: 'Free Tier' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', desc: 'Fast, efficient, and great for common tasks.', type: 'Free Tier' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', desc: 'Complex reasoning and high-level tasks.', type: 'Free Tier' },
   ];
 
   const handleGenerate = async () => {
@@ -25,19 +27,36 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
     setResult('');
 
     try {
-      const response = await fetch('/api/gemini', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          prompt,
-          activeTab // Optional: pass tab if backend needs to handle text/image differently
-        })
-      });
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
-      
-      setResult(data.text || 'No response generated.');
+      if (activeTab === 'text') {
+        const text = await geminiService.generateContentWithRotation({
+          model: selectedModel,
+          prompt: prompt,
+        });
+        setResult(text || 'No response generated.');
+      } else if (activeTab === 'image') {
+        const apiKey = await geminiService.getAvailableKey();
+        if (!apiKey) throw new Error("No available Gemini API keys.");
+        
+        const GoogleGenAI = (GenerativeAI as any).GoogleGenAI || (GenerativeAI as any).default?.GoogleGenAI;
+        if (!GoogleGenAI) throw new Error("GoogleGenAI not found in module");
+        
+        const genAI = new GoogleGenAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const response = await model.generateContent(prompt);
+        const res = await response.response;
+        
+        let imageUrl = '';
+        const candidates = res.candidates;
+        if (candidates && candidates[0] && candidates[0].content && candidates[0].content.parts) {
+          for (const part of candidates[0].content.parts) {
+            if (part.inlineData) {
+              imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+              break;
+            }
+          }
+        }
+        setResult(imageUrl || 'Failed to generate image.');
+      }
     } catch (error) {
       console.error('Gemini Lab Error:', error);
       setResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
