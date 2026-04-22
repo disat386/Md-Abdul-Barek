@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MessageSquare, X, Send, User, Bot, Loader2 } from 'lucide-react';
-import { geminiService } from '../services/geminiService';
+import { GoogleGenAI } from "@google/genai";
+
+const aiApiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
+const ai = new GoogleGenAI({ apiKey: aiApiKey });
 
 interface Message {
   role: 'user' | 'bot';
@@ -49,19 +52,19 @@ export const ChatBot = () => {
     setIsLoading(true);
 
     try {
-      const text = await geminiService.generateContentWithRotation({
-        model: "gemini-1.5-flash",
-        contents: [
-          { role: 'user', parts: [{ text: "System Instruction: " + SYSTEM_INSTRUCTION }] },
-          ...messages.map(m => ({
-            role: m.role === 'user' ? 'user' : 'model',
-            parts: [{ text: m.content }]
-          })), 
-          { role: 'user', parts: [{ text: userMessage }] }
-        ]
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [...messages.map(m => ({
+          role: m.role === 'user' ? 'user' : 'model',
+          parts: [{ text: m.content }]
+        })), { role: 'user', parts: [{ text: userMessage }] }],
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          maxOutputTokens: 500,
+        },
       });
 
-      const botResponse = text || "I'm sorry, I couldn't process that request.";
+      const botResponse = response.text || "I'm sorry, I couldn't process that request.";
       setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
     } catch (error) {
       console.error('ChatBot Error:', error);

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, Send, Loader2, Brain, Zap, Code, Type, X, FlaskConical } from 'lucide-react';
-import { geminiService } from '../services/geminiService';
-import * as GenerativeAI from "@google/generative-ai";
+import { Sparkles, Send, Loader2, Brain, Zap, Image as ImageIcon, Code, Type, X } from 'lucide-react';
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 interface GeminiLabProps {
   isOpen: boolean;
@@ -10,15 +11,15 @@ interface GeminiLabProps {
 }
 
 export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
-  const [activeTab, setActiveTab] = useState<'text' | 'analysis'>('text');
+  const [activeTab, setActiveTab] = useState<'text' | 'image' | 'analysis'>('text');
   const [prompt, setPrompt] = useState('');
   const [result, setResult] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview');
 
   const models = [
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', desc: 'Fast, efficient, and great for common tasks.', type: 'Free Tier' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', desc: 'Complex reasoning and high-level tasks.', type: 'Free Tier' },
+    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', desc: 'Fast, efficient, and great for common tasks.', type: 'Free Tier' },
+    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', desc: 'Complex reasoning and high-level tasks.', type: 'Free Tier' },
   ];
 
   const handleGenerate = async () => {
@@ -28,11 +29,26 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
 
     try {
       if (activeTab === 'text') {
-        const text = await geminiService.generateContentWithRotation({
+        const response = await ai.models.generateContent({
           model: selectedModel,
-          prompt: prompt,
+          contents: prompt,
         });
-        setResult(text || 'No response generated.');
+        setResult(response.text || 'No response generated.');
+      } else if (activeTab === 'image') {
+        // Nano banana models for image generation
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: { parts: [{ text: prompt }] },
+        });
+        
+        let imageUrl = '';
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+            if (part.inlineData) {
+                imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+                break;
+            }
+        }
+        setResult(imageUrl || 'Failed to generate image.');
       }
     } catch (error) {
       console.error('Gemini Lab Error:', error);
@@ -90,6 +106,13 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
               <Type className="w-5 h-5" />
               <span className="text-sm">Text Gen</span>
             </button>
+            <button 
+              onClick={() => setActiveTab('image')}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${activeTab === 'image' ? 'bg-orange-500 text-black font-bold' : 'hover:bg-white/5 text-white/60'}`}
+            >
+              <ImageIcon className="w-5 h-5" />
+              <span className="text-sm">Image Gen</span>
+            </button>
             
             <div className="pt-8 text-[10px] uppercase tracking-[0.2em] text-white/20 mb-4 px-2">MODEL SELECTION</div>
             {models.map(model => (
@@ -113,7 +136,7 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
                 <textarea 
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Describe what you want to generate..."
+                  placeholder={activeTab === 'text' ? "Describe what you want to generate..." : "A futuristic city in the clouds, neon lights, 4k..."}
                   className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-6 text-white text-sm focus:outline-none focus:border-orange-500/50 transition-all resize-none shadow-inner"
                 />
                 <button 
@@ -137,7 +160,18 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
                     <span className="text-xs uppercase tracking-[0.2em]">Synthesizing Neural Patterns...</span>
                   </div>
                 ) : result ? (
-                  <div className="whitespace-pre-wrap">{result}</div>
+                  activeTab === 'image' && result.startsWith('data:') ? (
+                    <div className="h-full flex items-center justify-center">
+                      <img 
+                        src={result} 
+                        alt="Generated" 
+                        className="max-h-full rounded-2xl shadow-2xl border border-white/10"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{result}</div>
+                  )
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center gap-4 text-white/10 italic">
                     <Code className="w-8 h-8" />
@@ -166,3 +200,24 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
     </div>
   );
 };
+
+const FlaskConical = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width="24" 
+    height="24" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M10 2v7.5" />
+    <path d="M14 2v7.5" />
+    <path d="M8.5 2h7" />
+    <path d="M14 11.5c.571.429.571 1.429 0 2.858a2.53 2.53 0 0 1-2.43 1.642H12.43a2.53 2.53 0 0 1-2.43-1.642c-.571-1.429-.571-2.429 0-2.858" />
+    <path d="M20 18.5a2.5 2.5 0 0 1-2.5 2.5h-11a2.5 2.5 0 0 1-2.5-2.5c0-1.429.571-4.858 2.5-8.5l2.5-4.5h6l2.5 4.5c1.929 3.642 2.5 7.071 2.5 8.5z" />
+  </svg>
+);
