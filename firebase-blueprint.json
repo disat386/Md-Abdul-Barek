@@ -64,6 +64,17 @@
     "/purchase_history/{id}": {
       "schema": "PurchaseHistory",
       "description": "User purchase logs."
+    },
+    "/api_keys/{service}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "keys": { "type": "array", "items": { "type": "string" } },
+          "service": { "type": "string" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "API keys stored for various AI services."
     }
   }
 }

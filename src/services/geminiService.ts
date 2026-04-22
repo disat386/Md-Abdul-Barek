@@ -1,4 +1,4 @@
-import * as GenerativeAI from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { db } from "../firebase";
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 
@@ -25,38 +25,70 @@ class GeminiService {
 
   private async refreshKeys() {
     const now = Date.now();
-    if (now - this.lastFetchTime < this.FETCH_INTERVAL && this.keysCached.length > 0) {
+    // Cache for 1 minute for faster performance
+    if (now - this.lastFetchTime < 60000 && this.keysCached.length > 0) {
       return;
     }
 
+    console.log("GeminiService: Fetching latest keys...");
     try {
       const docSnap = await getDoc(doc(db, 'api_keys', 'gemini'));
+      let dbKeys: string[] = [];
+      
       if (docSnap.exists()) {
         const data = docSnap.data() as GeminiKeyInfo;
-        if (Array.isArray(data.keys)) {
-          this.keysCached = data.keys;
-          this.exhaustedKeysCached = new Set(data.exhaustedKeys || []);
-        } else if ((data as any).key) {
-          this.keysCached = [(data as any).key];
-          this.exhaustedKeysCached = new Set();
-        }
-      } else {
-        const envKey = (import.meta as any).env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
-        if (envKey) {
-          this.keysCached = [envKey];
-        }
+        dbKeys = (data.keys || []).filter(k => k && k.trim().length > 0);
       }
-      this.lastFetchTime = now;
+      
+      // Merge unique keys from DB and Environment
+      const envKey = (import.meta as any).env.VITE_GEMINI_API_KEY || "";
+      const validEnvKey = envKey && envKey.trim().startsWith("AIzaSy") ? [envKey.trim()] : [];
+      
+      const allKeys = Array.from(new Set([...dbKeys, ...validEnvKey]));
+      
+      if (allKeys.length > 0) {
+        this.keysCached = allKeys;
+        this.lastFetchTime = now;
+        console.log(`GeminiService: Sync complete. Active keys count: ${this.keysCached.length}`);
+      } else {
+        console.warn("GeminiService: No valid API keys found in DB or Env.");
+      }
     } catch (error) {
-      console.error("Error refreshing Gemini keys:", error);
+      console.error("GeminiService: Refresh failed:", error);
+      // Fail-safe: use env key if available even on DB error
+      const envKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
+      if (envKey && envKey.trim().startsWith("AIzaSy")) {
+        this.keysCached = [envKey.trim()];
+      }
     }
+  }
+
+  public async forceRefresh() {
+    this.lastFetchTime = 0;
+    await this.refreshKeys();
   }
 
   public async getAvailableKey(): Promise<string | null> {
     await this.refreshKeys();
-    const activeKeys = this.keysCached.filter(k => !this.exhaustedKeysCached.has(k));
-    if (activeKeys.length === 0) return null;
-    return activeKeys[Math.floor(Math.random() * activeKeys.length)];
+    // Filter out empty, null or whitespace-only keys and ensure they look like Gemini keys
+    const activeKeys = this.keysCached.filter(k => 
+      k && 
+      typeof k === 'string' && 
+      k.trim().length > 10 && 
+      k.trim().startsWith("AIzaSy") &&
+      !this.exhaustedKeysCached.has(k.trim())
+    );
+    
+    if (activeKeys.length === 0) {
+      console.error("GeminiService: No valid keys found after extensive filtering.", {
+        cachedCount: this.keysCached.length,
+        exhaustedCount: this.exhaustedKeysCached.size
+      });
+      return null;
+    }
+    
+    const selected = activeKeys[Math.floor(Math.random() * activeKeys.length)].trim();
+    return selected;
   }
 
   public async markKeyAsExhausted(key: string) {
@@ -78,12 +110,11 @@ class GeminiService {
     let attempts = 0;
     while (attempts < maxRetries) {
       const apiKey = await this.getAvailableKey();
-      if (!apiKey) throw new Error("No available Gemini API keys.");
+      if (!apiKey) {
+        throw new Error("Ecosystem API Key not configured by Admin. Please check Admin Dashboard > API Keys.");
+      }
 
       try {
-        const GoogleGenAI = (GenerativeAI as any).GoogleGenAI || (GenerativeAI as any).default?.GoogleGenAI;
-        if (!GoogleGenAI) throw new Error("GoogleGenAI not found in module");
-        
         const genAI = new GoogleGenAI(apiKey);
         const model = genAI.getGenerativeModel({ model: params.model || "gemini-1.5-flash" });
         

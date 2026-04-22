@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useFirebase } from './FirebaseProvider';
 import { db } from '../firebase';
+import { geminiService } from '../services/geminiService';
 import { collection, query, getDocs, doc, setDoc, updateDoc, deleteDoc, increment, serverTimestamp, orderBy } from 'firebase/firestore';
 import { Users, Key, Package, Tag, ShieldAlert, CheckCircle, X, CreditCard, Settings, Trash2, Plus } from 'lucide-react';
 
@@ -92,10 +93,21 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
   const saveApiKeys = async () => {
     try {
-      await setDoc(doc(db, 'api_keys', 'gemini'), { keys: geminiKeys, service: 'gemini' });
-      await setDoc(doc(db, 'api_keys', 'huggingface'), { key: huggingfaceKey.trim(), service: 'huggingface' });
+      const sanitizedKeys = geminiKeys.map(k => k.trim()).filter(k => k.length > 0);
+      await setDoc(doc(db, 'api_keys', 'gemini'), { 
+        keys: sanitizedKeys, 
+        service: 'gemini',
+        updatedAt: serverTimestamp() 
+      });
+      await setDoc(doc(db, 'api_keys', 'huggingface'), { 
+        key: huggingfaceKey.trim(), 
+        service: 'huggingface',
+        updatedAt: serverTimestamp()
+      });
       setNewGeminiKey('');
-      showMessage("API Keys saved successfully", "success");
+      setGeminiKeys(sanitizedKeys);
+      await geminiService.forceRefresh();
+      showMessage("API Keys saved and ecosystem synchronized.", "success");
     } catch (error) {
       showMessage("Failed to save API keys", "error");
     }
