@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, Send, Loader2, Brain, Zap, Image as ImageIcon, Code, Type, X } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 interface GeminiLabProps {
   isOpen: boolean;
@@ -28,28 +25,19 @@ export const GeminiLab = ({ isOpen, onClose }: GeminiLabProps) => {
     setResult('');
 
     try {
-      if (activeTab === 'text') {
-        const response = await ai.models.generateContent({
-          model: selectedModel,
-          contents: prompt,
-        });
-        setResult(response.text || 'No response generated.');
-      } else if (activeTab === 'image') {
-        // Nano banana models for image generation
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-image',
-          contents: { parts: [{ text: prompt }] },
-        });
-        
-        let imageUrl = '';
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-                imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-                break;
-            }
-        }
-        setResult(imageUrl || 'Failed to generate image.');
-      }
+      const response = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          prompt,
+          activeTab // Optional: pass tab if backend needs to handle text/image differently
+        })
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      
+      setResult(data.text || 'No response generated.');
     } catch (error) {
       console.error('Gemini Lab Error:', error);
       setResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);

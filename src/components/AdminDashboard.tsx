@@ -10,7 +10,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<'users' | 'api' | 'packages' | 'coupons' | 'payments' | 'settings'>('users');
   
   const [users, setUsers] = useState<any[]>([]);
-  const [geminiKey, setGeminiKey] = useState('');
+  const [geminiKeys, setGeminiKeys] = useState('');
   const [huggingfaceKey, setHuggingfaceKey] = useState('');
   const [packages, setPackages] = useState<any[]>([]);
   const [coupons, setCoupons] = useState<any[]>([]);
@@ -40,7 +40,10 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
       } else if (activeTab === 'api' && isSuperAdmin) {
         const keySnap = await getDocs(collection(db, 'api_keys'));
         const geminiDoc = keySnap.docs.find(d => d.id === 'gemini');
-        if (geminiDoc) setGeminiKey(geminiDoc.data().key);
+        if (geminiDoc) {
+          const keys = geminiDoc.data().keys || [];
+          setGeminiKeys(Array.isArray(keys) ? keys.join('\n') : (geminiDoc.data().key || ''));
+        }
         const hfDoc = keySnap.docs.find(d => d.id === 'huggingface');
         if (hfDoc) setHuggingfaceKey(hfDoc.data().key);
       } else if (activeTab === 'packages') {
@@ -84,7 +87,12 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
   const saveApiKeys = async () => {
     try {
-      await setDoc(doc(db, 'api_keys', 'gemini'), { key: geminiKey.trim(), service: 'gemini' });
+      const keysList = geminiKeys.split('\n').map(k => k.trim()).filter(k => k);
+      await setDoc(doc(db, 'api_keys', 'gemini'), { 
+        keys: keysList, 
+        service: 'gemini',
+        updatedAt: serverTimestamp() 
+      });
       await setDoc(doc(db, 'api_keys', 'huggingface'), { key: huggingfaceKey.trim(), service: 'huggingface' });
       showMessage("API Keys saved successfully", "success");
     } catch (error) {
@@ -348,14 +356,14 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 
                 <div className="space-y-6">
                   <div>
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Gemini API Key</label>
-                    <input
-                      type="password"
-                      value={geminiKey}
-                      onChange={(e) => setGeminiKey(e.target.value)}
-                      className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
-                      placeholder="AIzaSy..."
+                    <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Gemini API Keys (One per line for rotation)</label>
+                    <textarea
+                      value={geminiKeys}
+                      onChange={(e) => setGeminiKeys(e.target.value)}
+                      className="w-full h-32 bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500 resize-none font-mono text-sm"
+                      placeholder="AIzaSy... (First Key)&#10;AIzaSy... (Second Key)"
                     />
+                    <p className="text-[10px] text-white/40 mt-2 italic">System will automatically rotate between these keys if limits are hit.</p>
                   </div>
 
                   <div>
