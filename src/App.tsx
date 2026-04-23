@@ -27,6 +27,7 @@ import {
   Search
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { useFirebase } from './components/FirebaseProvider';
 import { AuthModal } from './components/AuthModal';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -38,6 +39,14 @@ import { ProfileModal } from './components/ProfileModal';
 import { db } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 import { collection, query, where, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore';
+
+// Pages
+import Documentation from './pages/Documentation';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsOfService from './pages/TermsOfService';
+import SecurityAudit from './pages/SecurityAudit';
+import Status from './pages/Status';
+import AdminPage from './pages/AdminPage';
 
 // --- PREVIEW LINKS CONFIGURATION ---
 // Replace these with your actual AI Studio Preview URLs (.run.app)
@@ -104,9 +113,9 @@ const tools = [
 
 export default function App() {
   const { user, profile, loading, login, logout } = useFirebase();
+  const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isBillingOpen, setIsBillingOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
@@ -191,25 +200,21 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
+
   useEffect(() => {
-    // Safety timeout: if loading takes more than 5 seconds, force it to false
-    const timer = setTimeout(() => {
-      if (loading) {
-        console.warn('App: Loading timed out, forcing render.');
-        // We don't have direct access to setLoading here as it's in the provider,
-        // but we can add a local safety check if needed.
-      }
-    }, 5000);
-    return () => clearTimeout(timer);
-  }, [loading]);
+    // Scroll to top on route change
+    window.scrollTo(0, 0);
+    setIsMenuOpen(false);
+  }, [location.pathname]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
         <motion.div 
-          animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="text-white font-light tracking-[0.2em] text-2xl uppercase"
+          animate={{ opacity: [0.3, 1, 0.3] }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+          className="text-white font-display font-medium tracking-[0.5em] text-sm uppercase"
         >
           Auurio
         </motion.div>
@@ -231,24 +236,17 @@ export default function App() {
         onClose={() => setIsAuthModalOpen(false)} 
       />
 
-      {/* Admin Dashboard */}
-      {isAdminOpen && <AdminDashboard onClose={() => setIsAdminOpen(false)} />}
-
-      {/* Billing Modal */}
-      <BillingModal isOpen={isBillingOpen} onClose={() => setIsBillingOpen(false)} />
-      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
-      <GeminiLab isOpen={isLabOpen} onClose={() => setIsLabOpen(false)} />
-
-      {/* Navigation */}
       <OnboardingTour />
       <ChatBot />
       <nav className="fixed top-0 w-full z-[60] border-b border-white/5 bg-black/40 backdrop-blur-2xl">
         <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-orange-500 rounded-2xl rotate-12 flex items-center justify-center shadow-lg shadow-orange-500/20 group hover:rotate-0 transition-transform duration-500">
-              <Zap className="w-6 h-6 text-black fill-current" />
-            </div>
-            <span className="text-2xl font-display font-bold tracking-tight">Auurio</span>
+            <Link to="/" className="flex items-center gap-3 group">
+              <div className="w-10 h-10 bg-orange-500 rounded-2xl rotate-12 flex items-center justify-center shadow-lg shadow-orange-500/20 group-hover:rotate-0 transition-transform duration-500">
+                <Zap className="w-6 h-6 text-black fill-current" />
+              </div>
+              <span className="text-2xl font-display font-bold tracking-tight">Auurio</span>
+            </Link>
           </div>
 
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-white/60">
@@ -272,23 +270,25 @@ export default function App() {
             {user && (
               <a href="#dashboard" className="hover:text-white transition-colors">Dashboard</a>
             )}
-            <button 
-              onClick={() => setIsLabOpen(true)} 
-              className="flex items-center gap-2 text-orange-500 hover:text-white transition-colors font-bold uppercase text-[10px] tracking-widest"
-            >
-              <Sparkles className="w-3 h-3" /> Gemini Lab
-            </button>
+            {isAdmin && (
+              <button 
+                onClick={() => setIsLabOpen(true)} 
+                className="flex items-center gap-2 text-orange-500 hover:text-white transition-colors font-bold uppercase text-[10px] tracking-widest"
+              >
+                <Sparkles className="w-3 h-3" /> Gemini Lab
+              </button>
+            )}
             <a href="#features" className="hover:text-white transition-colors">Ecosystem</a>
             <button onClick={() => setIsBillingOpen(true)} className="hover:text-white transition-colors">Credits</button>
             {user ? (
               <div className="flex items-center gap-4 pl-8 border-l border-white/10">
-                {(profile?.role === 'admin' || profile?.role === 'super_admin') && (
-                  <button 
-                    onClick={() => setIsAdminOpen(true)}
+                {isAdmin && (
+                  <Link 
+                    to="/admin"
                     className="text-xs font-bold uppercase tracking-wider text-orange-500 hover:text-white transition-colors"
                   >
                     Admin
-                  </button>
+                  </Link>
                 )}
                 <div className="flex flex-col items-end">
                   <button 
@@ -371,23 +371,26 @@ export default function App() {
               {user && (
                 <a href="#dashboard" onClick={() => setIsMenuOpen(false)} className="hover:text-orange-500 transition-colors">Dashboard</a>
               )}
-              <button 
-                onClick={() => { setIsLabOpen(true); setIsMenuOpen(false); }} 
-                className="text-left text-orange-500 hover:text-white transition-colors font-bold uppercase text-sm tracking-widest flex items-center gap-2"
-              >
-                <Sparkles className="w-4 h-4" /> Gemini Lab
-              </button>
+              {isAdmin && (
+                <button 
+                  onClick={() => { setIsLabOpen(true); setIsMenuOpen(false); }} 
+                  className="text-left text-orange-500 hover:text-white transition-colors font-bold uppercase text-sm tracking-widest flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" /> Gemini Lab
+                </button>
+              )}
               <a href="#features" onClick={() => setIsMenuOpen(false)} className="hover:text-orange-500 transition-colors">Ecosystem</a>
               <button onClick={() => { setIsBillingOpen(true); setIsMenuOpen(false); }} className="text-left hover:text-orange-500 transition-colors">Credits</button>
               
               <div className="mt-auto pb-12">
-                {(profile?.role === 'admin' || profile?.role === 'super_admin') && (
-                  <button 
-                    onClick={() => { setIsAdminOpen(true); setIsMenuOpen(false); }}
-                    className="w-full mb-4 py-3 rounded-xl bg-orange-500/10 text-orange-500 font-bold uppercase tracking-wider text-sm border border-orange-500/20"
+                {isAdmin && (
+                  <Link 
+                    to="/admin"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="w-full mb-4 py-3 rounded-xl bg-orange-500/10 text-orange-500 font-bold uppercase tracking-wider text-sm border border-orange-500/20 block text-center"
                   >
                     Admin Dashboard
-                  </button>
+                  </Link>
                 )}
                 {user ? (
                   <div className="space-y-3">
@@ -429,6 +432,15 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <Routes>
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/documentation" element={<Documentation />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/security" element={<SecurityAudit />} />
+        <Route path="/status" element={<Status />} />
+        <Route path="/" element={
+          <>
       {/* Hero Section */}
       <header className="relative pt-64 pb-32 overflow-hidden z-10">
         <div className="max-w-7xl mx-auto px-6">
@@ -904,67 +916,74 @@ export default function App() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-32 px-6 relative overflow-hidden z-10 border-t border-white/5 bg-black">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid lg:grid-cols-4 gap-20 items-start mb-32">
-            <div className="lg:col-span-2">
-              <div className="flex items-center gap-3 mb-10 group">
-                <div className="w-10 h-10 bg-orange-500 rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform shadow-lg shadow-orange-500/20">
-                  <Zap className="w-6 h-6 text-black fill-current" />
-                </div>
-                <span className="text-3xl font-display font-black tracking-tight">Auurio</span>
-              </div>
-              <p className="text-white/30 max-w-sm font-light leading-relaxed mb-10">
-                The unified AI production ecosystem. Engineering the future of creative output through decentralized toolsets and centralized value.
-              </p>
-              <div className="flex gap-4">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
-                    <Sparkles className="w-4 h-4 text-white/20" />
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div>
-              <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500 mb-10">Protocols</h5>
-              <div className="grid gap-4">
-                {tools.map(tool => (
-                  <a key={tool.id} href={tool.url} className="text-xs text-white/40 hover:text-white transition-colors font-light tracking-wide">{tool.name}</a>
-                ))}
-              </div>
-            </div>
+          <BillingModal isOpen={isBillingOpen} onClose={() => setIsBillingOpen(false)} />
+          <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
+          <GeminiLab isOpen={isLabOpen} onClose={() => setIsLabOpen(false)} />
+        </>
+      } />
+    </Routes>
 
-            <div>
-              <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500 mb-10">Network</h5>
-              <div className="grid gap-4 text-xs text-white/40 font-light tracking-wide">
-                <a href="#" className="hover:text-white transition-colors">Documentation</a>
-                <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-                <a href="#" className="hover:text-white transition-colors">Terms of Protocol</a>
-                <a href="#" className="hover:text-white transition-colors">Security Audit</a>
-                <a href="#" className="hover:text-white transition-colors">Status</a>
+    {/* Footer */}
+    <footer className="py-32 px-6 relative overflow-hidden z-10 border-t border-white/5 bg-black">
+      <div className="max-w-7xl mx-auto">
+        <div className="grid lg:grid-cols-4 gap-20 items-start mb-32">
+          <div className="lg:col-span-2">
+            <div className="flex items-center gap-3 mb-10 group">
+              <div className="w-10 h-10 bg-orange-500 rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform shadow-lg shadow-orange-500/20">
+                <Zap className="w-6 h-6 text-black fill-current" />
               </div>
+              <span className="text-3xl font-display font-black tracking-tight">Auurio</span>
+            </div>
+            <p className="text-white/30 max-w-sm font-light leading-relaxed mb-10">
+              The unified AI production ecosystem. Engineering the future of creative output through decentralized toolsets and centralized value.
+            </p>
+            <div className="flex gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
+                  <Sparkles className="w-4 h-4 text-white/20" />
+                </div>
+              ))}
             </div>
           </div>
           
-          <div className="pt-20 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-10">
-            <div className="text-[10px] font-mono text-white/10 uppercase tracking-[0.2em]">
-              © 2026 Auurio Ecosystem // All systems operational
+          <div>
+            <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500 mb-10">Protocols</h5>
+            <div className="grid gap-4">
+              {tools.map(tool => (
+                <a key={tool.id} href={tool.url} className="text-xs text-white/40 hover:text-white transition-colors font-light tracking-wide">{tool.name}</a>
+              ))}
             </div>
-            <div className="flex items-center gap-10 font-mono text-[10px] text-white/20">
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-1 rounded-full bg-green-500" />
-                Latency: 24ms
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-1 rounded-full bg-blue-500" />
-                Uptime: 99.99%
-              </div>
+          </div>
+
+          <div>
+            <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500 mb-10">Network</h5>
+            <div className="grid gap-4 text-xs text-white/40 font-light tracking-wide">
+              <Link to="/documentation" className="hover:text-white transition-colors">Documentation</Link>
+              <Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+              <Link to="/terms" className="hover:text-white transition-colors">Terms of Protocol</Link>
+              <Link to="/security" className="hover:text-white transition-colors">Security Audit</Link>
+              <Link to="/status" className="hover:text-white transition-colors">Status</Link>
             </div>
           </div>
         </div>
-      </footer>
+        
+        <div className="pt-20 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-10">
+          <div className="text-[10px] font-mono text-white/10 uppercase tracking-[0.2em]">
+            © 2026 Auurio Ecosystem // All systems operational
+          </div>
+          <div className="flex items-center gap-10 font-mono text-[10px] text-white/20">
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-1 rounded-full bg-green-500" />
+              Latency: 24ms
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-1 rounded-full bg-blue-500" />
+              Uptime: 99.99%
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
     </div>
   );
 }

@@ -17,6 +17,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [coupons, setCoupons] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [bkashNumber, setBkashNumber] = useState('');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
   const [manualCredits, setManualCredits] = useState<Record<string, string>>({});
   const [editingPackage, setEditingPackage] = useState<any | null>(null);
   
@@ -57,6 +58,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         const settingsSnap = await getDocs(collection(db, 'settings'));
         const paymentDoc = settingsSnap.docs.find(d => d.id === 'payment');
         if (paymentDoc) setBkashNumber(paymentDoc.data().bkashNumber);
+        const chatDoc = settingsSnap.docs.find(d => d.id === 'chatbot');
+        if (chatDoc) setWhatsappNumber(chatDoc.data().whatsappNumber || '');
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -96,6 +99,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const saveSettings = async () => {
     try {
       await setDoc(doc(db, 'settings', 'payment'), { bkashNumber });
+      await setDoc(doc(db, 'settings', 'chatbot'), { whatsappNumber });
       showMessage("Settings saved successfully", "success");
     } catch (error) {
       showMessage("Failed to save settings", "error");
@@ -386,25 +390,46 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
             {/* SETTINGS TAB */}
             {activeTab === 'settings' && isSuperAdmin && (
-              <div className="max-w-2xl">
-                <h2 className="text-xl font-bold mb-2">Payment Settings</h2>
-                <p className="text-white/60 text-sm mb-6">Configure your bKash receiver number for manual payments.</p>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">bKash Number (Personal/Agent)</label>
-                    <input
-                      type="text"
-                      value={bkashNumber}
-                      onChange={(e) => setBkashNumber(e.target.value)}
-                      className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
-                      placeholder="017XXXXXXXX"
-                    />
+              <div className="max-w-2xl space-y-12">
+                <div>
+                  <h2 className="text-xl font-bold mb-2">Payment Settings</h2>
+                  <p className="text-white/60 text-sm mb-6">Configure your bKash receiver number for manual payments.</p>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">bKash Number (Personal/Agent)</label>
+                      <input
+                        type="text"
+                        value={bkashNumber}
+                        onChange={(e) => setBkashNumber(e.target.value)}
+                        className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
+                        placeholder="017XXXXXXXX"
+                      />
+                    </div>
                   </div>
-                  <button onClick={saveSettings} className="bg-orange-500 text-black font-bold px-6 py-3 rounded-xl hover:bg-orange-400">
-                    Save Settings
-                  </button>
                 </div>
+
+                <div>
+                  <h2 className="text-xl font-bold mb-2">Support Settings</h2>
+                  <p className="text-white/60 text-sm mb-6">Configure the WhatsApp number for the chatbot support.</p>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">WhatsApp Number (with Country Code)</label>
+                      <input
+                        type="text"
+                        value={whatsappNumber}
+                        onChange={(e) => setWhatsappNumber(e.target.value)}
+                        className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
+                        placeholder="8801303531386"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button onClick={saveSettings} className="bg-orange-500 text-black font-bold px-10 py-4 rounded-xl hover:bg-orange-400 transition-colors uppercase text-xs tracking-widest">
+                  Save All Settings
+                </button>
               </div>
             )}
 

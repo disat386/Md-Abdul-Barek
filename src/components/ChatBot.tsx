@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MessageSquare, X, Send, User, Bot, Loader2 } from 'lucide-react';
+import { MessageSquare, X, Send, User, Bot, Loader2, Phone, Zap, CreditCard } from 'lucide-react';
 import { geminiKeyService } from '../services/geminiKeyService';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface Message {
   role: 'user' | 'bot';
@@ -32,7 +34,22 @@ export const ChatBot = () => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [whatsappNumber, setWhatsappNumber] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const chatDoc = await getDoc(doc(db, 'settings', 'chatbot'));
+        if (chatDoc.exists()) {
+          setWhatsappNumber(chatDoc.data().whatsappNumber || '');
+        }
+      } catch (error) {
+        console.error("Error fetching chatbot settings:", error);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -94,14 +111,28 @@ export const ChatBot = () => {
             className="fixed bottom-24 right-8 z-[60] w-[350px] md:w-[400px] h-[500px] bg-zinc-900 border border-white/10 rounded-3xl shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl"
           >
             {/* Header */}
-            <div className="p-4 border-b border-white/10 bg-white/5 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center">
-                <Bot className="w-5 h-5 text-black" />
+            <div className="p-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center">
+                  <Bot className="w-5 h-5 text-black" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold">Auurio Assistant</h4>
+                  <p className="text-[10px] text-green-500 font-mono">AI Online</p>
+                </div>
               </div>
-              <div>
-                <h4 className="text-sm font-bold">Auurio Assistant</h4>
-                <p className="text-[10px] text-green-500 font-mono">AI Online</p>
-              </div>
+              
+              {whatsappNumber && (
+                <a 
+                  href={`https://wa.me/${whatsappNumber}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 hover:bg-green-500/10 rounded-full transition-colors group"
+                  title="Talk to a Human"
+                >
+                  <Phone className="w-4 h-4 text-green-500 group-hover:scale-110 transition-transform" />
+                </a>
+              )}
             </div>
 
             {/* Messages */}
@@ -124,6 +155,19 @@ export const ChatBot = () => {
                   </div>
                 </div>
               ))}
+              
+              {messages.length === 1 && whatsappNumber && (
+                <div className="flex justify-start pl-11">
+                  <motion.button
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => window.open(`https://wa.me/${whatsappNumber}`, '_blank')}
+                    className="text-[10px] uppercase tracking-widest font-bold px-4 py-2 border border-green-500/30 text-green-500 rounded-full hover:bg-green-500 hover:text-black transition-all flex items-center gap-2"
+                  >
+                    <Phone className="w-3 h-3" /> Talk to Human Expert
+                  </motion.button>
+                </div>
+              )}
               {isLoading && (
                 <div className="flex justify-start">
                   <div className="flex gap-3">
@@ -140,6 +184,24 @@ export const ChatBot = () => {
 
             {/* Input */}
             <div className="p-4 border-t border-white/10 bg-white/5">
+              {whatsappNumber && messages.length < 5 && (
+                <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-hide pb-1">
+                  {[
+                    { label: 'Human Help', action: () => window.open(`https://wa.me/${whatsappNumber}`, '_blank'), icon: Phone },
+                    { label: 'Pricing', action: () => setInput('Tell me about your pricing'), icon: CreditCard },
+                    { label: 'Tools', action: () => setInput('What tools do you have?'), icon: Zap }
+                  ].map((chip, idx) => (
+                    <button
+                      key={idx}
+                      onClick={chip.action}
+                      className="flex items-center gap-2 whitespace-nowrap px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:border-orange-500/50 hover:bg-orange-500/5 transition-all text-[10px] text-white/60 hover:text-orange-500 group"
+                    >
+                      <chip.icon className="w-3 h-3 group-hover:scale-110 transition-transform" />
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="relative">
                 <input
                   type="text"

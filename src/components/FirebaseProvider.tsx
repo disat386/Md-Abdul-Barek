@@ -39,6 +39,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log('FirebaseProvider: Auth state changed:', firebaseUser?.uid || 'No user');
       setUser(firebaseUser);
+      setLoading(false);
       
       if (firebaseUser) {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
@@ -72,17 +73,14 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               handleFirestoreError(err, OperationType.WRITE, `users/${firebaseUser.uid}`);
             });
           }
-          setLoading(false);
         }, (error) => {
           console.error('FirebaseProvider: Profile snapshot error:', error);
           handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
-          setLoading(false);
         });
 
         return () => unsubProfile();
       } else {
         setProfile(null);
-        setLoading(false);
       }
     });
 
