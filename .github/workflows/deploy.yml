@@ -29,20 +29,14 @@ jobs:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           # Add other env variables here if needed
 
-      - name: Deploy via LFTP to Hostinger
-        env:
-          FTP_SERVER: ${{ secrets.FTP_SERVER }}
-          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
-          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lftp
-          lftp -c "
-            set ftp:ssl-allow yes;
-            set ftp:ssl-force true;
-            set ftp:ssl-protect-data true;
-            set ssl:verify-certificate no;
-            open -u '$FTP_USERNAME','$FTP_PASSWORD' '$FTP_SERVER';
-            mirror -R -v --delete --parallel=2 ./dist/ ./audiobook/;
-            quit;
-          "
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: ./public_html/
+          log-level: standard
+          timeout: 600000
+          state-name: .deploy-sync-state-v001.json
