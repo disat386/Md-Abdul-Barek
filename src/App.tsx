@@ -24,7 +24,8 @@ import {
   PenTool,
   Workflow,
   Megaphone,
-  Search
+  Search,
+  Mail
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
@@ -48,6 +49,7 @@ import TermsOfService from './pages/TermsOfService';
 import SecurityAudit from './pages/SecurityAudit';
 import Status from './pages/Status';
 import AdminPage from './pages/AdminPage';
+import Contact from './pages/Contact';
 
 // --- PREVIEW LINKS CONFIGURATION ---
 // Replace these with your actual AI Studio Preview URLs (.run.app)
@@ -63,7 +65,7 @@ const tools = [
   {
     id: 'audiobook-aura',
     name: 'Audiobook Aura',
-    description: 'Transform manuscripts and documents into studio-quality audio experiences with emotive, high-fidelity AI narration.',
+    description: 'High-fidelity AI narration engine for transforming manuscripts into studio-quality audio experiences with emotive voice synthesis.',
     icon: Headphones,
     color: 'text-orange-500',
     bg: 'bg-orange-500/10',
@@ -73,7 +75,7 @@ const tools = [
   {
     id: 'auurio-motion',
     name: 'Auurio Motion',
-    description: 'Bring your vision to life with cinematic AI-driven animations and professional-grade motion graphics in seconds.',
+    description: 'Cinematic AI animation pipeline for creating professional-grade motion graphics and visual storytelling in seconds.',
     icon: Sparkles,
     color: 'text-yellow-500',
     bg: 'bg-yellow-500/10',
@@ -83,7 +85,7 @@ const tools = [
   {
     id: 'auurio-marketra',
     name: 'Auurio Marketra',
-    description: 'Accelerate brand growth with a high-performance AI engine for technical SEO, viral marketing strategies, and data-driven insights.',
+    description: 'High-performance AI engine for technical SEO optimization, viral marketing automation, and strategic content insights.',
     icon: Megaphone,
     color: 'text-cyan-400',
     bg: 'bg-cyan-400/10',
@@ -93,7 +95,7 @@ const tools = [
   {
     id: 'newslite',
     name: 'NewsLite',
-    description: 'Stay ahead of the curve with hyper-personalized, AI-curated news briefings and real-time intelligence tailored to your industry.',
+    description: 'Hyper-personalized AI news aggregator that curates real-time industrial intelligence and global briefings tailored to user interests.',
     icon: Newspaper,
     color: 'text-emerald-500',
     bg: 'bg-emerald-500/10',
@@ -103,7 +105,7 @@ const tools = [
   {
     id: 'contentlab',
     name: 'ContentLab',
-    description: 'A state-of-the-art AI workspace designed for deep research, precision drafting, and professional long-form content excellence.',
+    description: 'Professional long-form content workspace specializing in deep research, precision drafting, and iterative AI-assisted writing.',
     icon: PenTool,
     color: 'text-pink-500',
     bg: 'bg-pink-500/10',
@@ -295,6 +297,7 @@ export default function App() {
             )}
             <a href="#features" className="hover:text-white transition-colors">Ecosystem</a>
             <button onClick={() => setIsBillingOpen(true)} className="hover:text-white transition-colors">Credits</button>
+            <Link to="/contact" className="px-5 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-orange-500 hover:text-black hover:border-orange-500 transition-all font-bold text-[10px] uppercase tracking-widest">Connect</Link>
             {user ? (
               <div className="flex items-center gap-4 pl-8 border-l border-white/10">
                 {isAdmin && (
@@ -454,6 +457,7 @@ export default function App() {
         <Route path="/terms" element={<TermsOfService />} />
         <Route path="/security" element={<SecurityAudit />} />
         <Route path="/status" element={<Status />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path="/" element={
           <>
       {/* Hero Section */}
@@ -461,46 +465,75 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-6">
           <div id="hero-section" className="grid lg:grid-cols-2 gap-32 items-center">
             <motion.div
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: { opacity: 0 },
+                visible: {
+                  opacity: 1,
+                  transition: {
+                    staggerChildren: 0.15,
+                    delayChildren: 0.3
+                  }
+                }
+              }}
             >
               <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
+                variants={{
+                  hidden: { opacity: 0, y: 30, scale: 0.9 },
+                  visible: { opacity: 1, y: 0, scale: 1 }
+                }}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-10"
               >
                 <Sparkles className="w-4 h-4 text-orange-500" />
                 <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">Unified AI Ecosystem</span>
               </motion.div>
               
-              <h1 className="text-8xl lg:text-[10rem] font-display font-black leading-[0.82] tracking-tighter mb-10">
+              <motion.h1 
+                variants={{
+                  hidden: { opacity: 0, y: 50, letterSpacing: "-0.05em" },
+                  visible: { opacity: 1, y: 0, letterSpacing: "-0.02em", transition: { duration: 1, ease: [0.16, 1, 0.3, 1] } }
+                }}
+                className="text-8xl lg:text-[10rem] font-display font-black leading-[0.82] tracking-tighter mb-10"
+              >
                 THE NEXT <br />
-                <span className="text-orange-500 italic">GEN</span> ERA
-              </h1>
-              <p className="text-xl text-white/40 leading-relaxed max-w-lg mb-12 font-light">
-                A centralized hub for high-performance AI tools. Empowering creators with studio-quality audio, cinematic motion, and data-driven marketing.
-              </p>
+                <span className="text-orange-500 italic block mt-2">GEN</span> ERA
+              </motion.h1>
               
-              <div className="flex flex-wrap gap-4">
+              <motion.p 
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.8 } }
+                }}
+                className="text-xl text-white/40 leading-relaxed max-w-lg mb-12 font-light"
+              >
+                A high-performance hub for technical AI production. Engineering the future with studio-quality audio, cinematic motion, and data-driven market intelligence.
+              </motion.p>
+              
+              <motion.div 
+                variants={{
+                  hidden: { opacity: 0, scale: 0.95 },
+                  visible: { opacity: 1, scale: 1 }
+                }}
+                className="flex flex-wrap gap-4"
+              >
                 <motion.button 
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={() => setIsAuthModalOpen(true)}
                   className="px-12 py-6 bg-orange-500 text-black font-black text-xs uppercase tracking-widest rounded-3xl hover:bg-white transition-all duration-500 shadow-2xl shadow-orange-500/20"
                 >
                   Enter Ecosystem
                 </motion.button>
                 <motion.a 
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  href="#features"
+                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  href="#tools"
                   className="px-12 py-6 bg-white/5 border border-white/10 text-white font-black text-xs uppercase tracking-widest rounded-3xl hover:bg-white/10 transition-all duration-300 backdrop-blur-md"
                 >
                   Explore Tech
                 </motion.a>
-              </div>
+              </motion.div>
             </motion.div>
             
             <motion.div
@@ -642,6 +675,62 @@ export default function App() {
               </button>
             </div>
           )}
+        </div>
+      </section>
+
+      {/* Detailed Protocol Briefs */}
+      <section className="py-48 relative z-10 border-t border-white/5 bg-zinc-950/50">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="mb-32">
+            <div className="text-orange-500 font-mono text-[10px] uppercase tracking-[0.5em] mb-6 inline-block">Deep Technical Overview</div>
+            <h2 className="text-6xl lg:text-7xl font-display font-black tracking-tight uppercase mb-10">PROTOCOL <span className="text-orange-500">SPECIFICATIONS</span></h2>
+            <p className="text-white/40 max-w-2xl font-light leading-relaxed">
+              Every tool in the Auurio ecosystem is built on proprietary AI architectures, tuned for professional-grade reliability and synchronized through a unified compute ledger.
+            </p>
+          </div>
+
+          <div className="space-y-10">
+            {tools.map((tool, idx) => (
+              <motion.div 
+                key={tool.id}
+                initial={{ opacity: 0, x: idx % 2 === 0 ? -20 : 20 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                className="glass-card p-12 lg:p-16 rounded-[4rem] border-white/5 hover:bg-white/[0.03] transition-all group"
+              >
+                <div className="grid lg:grid-cols-3 gap-12 items-center">
+                  <div className="flex items-center gap-8">
+                    <div className={`w-24 h-24 ${tool.bg} rounded-3xl flex items-center justify-center border border-white/10 shadow-2xl shadow-black group-hover:scale-105 transition-transform duration-500`}>
+                      <tool.icon className={`w-10 h-10 ${tool.color}`} />
+                    </div>
+                    <div>
+                      <h3 className="text-3xl font-display font-black tracking-tight uppercase mb-2">{tool.name}</h3>
+                      <div className="text-[10px] font-mono text-orange-500/60 uppercase tracking-widest">{tool.subdomain}</div>
+                    </div>
+                  </div>
+                  <div className="lg:col-span-2">
+                    <p className="text-white/40 text-lg leading-relaxed font-light italic mb-8">
+                      {tool.description}
+                    </p>
+                    <div className="grid sm:grid-cols-3 gap-6">
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                        <div className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Architecture</div>
+                        <div className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Neural Core V4</div>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                        <div className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Latency</div>
+                        <div className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Sub-100ms In-Proc</div>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                        <div className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Output Fidelity</div>
+                        <div className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Production Grade</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -950,14 +1039,27 @@ export default function App() {
               <span className="text-3xl font-display font-black tracking-tight">Auurio</span>
             </div>
             <p className="text-white/30 max-w-sm font-light leading-relaxed mb-10">
-              The unified AI production ecosystem. Engineering the future of creative output through decentralized toolsets and centralized value.
+              The unified AI production ecosystem. Engineering the future of creative output through decentralized toolsets and centralized value. Led by Abdul Barek (DIsat).
             </p>
-            <div className="flex gap-4">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
-                  <Sparkles className="w-4 h-4 text-white/20" />
+            <div className="space-y-4 mb-10">
+              <div className="flex items-center gap-4 group cursor-pointer" onClick={() => window.open('mailto:disat@auurio.com')}>
+                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center group-hover:bg-orange-500/10 group-hover:border-orange-500/20 transition-all">
+                  <Mail className="w-4 h-4 text-orange-500" />
                 </div>
-              ))}
+                <div>
+                  <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-0.5">Founders Mail</div>
+                  <div className="text-xs text-white/50 group-hover:text-white transition-colors">disat@auurio.com</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 group cursor-pointer" onClick={() => window.open('mailto:help@auurio.com')}>
+                <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center group-hover:bg-blue-500/10 group-hover:border-blue-500/20 transition-all">
+                  <MessageSquare className="w-4 h-4 text-blue-500" />
+                </div>
+                <div>
+                  <div className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-0.5">Support Desk</div>
+                  <div className="text-xs text-white/50 group-hover:text-white transition-colors">help@auurio.com</div>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -973,6 +1075,7 @@ export default function App() {
           <div>
             <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-500 mb-10">Network</h5>
             <div className="grid gap-4 text-xs text-white/40 font-light tracking-wide">
+              <Link to="/contact" className="hover:text-white transition-colors">Contact Support</Link>
               <Link to="/documentation" className="hover:text-white transition-colors">Documentation</Link>
               <Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
               <Link to="/terms" className="hover:text-white transition-colors">Terms of Protocol</Link>
@@ -984,7 +1087,7 @@ export default function App() {
         
         <div className="pt-20 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-10">
           <div className="text-[10px] font-mono text-white/10 uppercase tracking-[0.2em]">
-            © 2026 Auurio Ecosystem // All systems operational
+            © 2026 Auurio Ecosystem // Abdul Barek (DIsat) // All systems operational
           </div>
           <div className="flex items-center gap-10 font-mono text-[10px] text-white/20">
             <div className="flex items-center gap-2">
