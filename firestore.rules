@@ -73,6 +73,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /feedback/{feedbackId} {
+      allow create: if true; // anyone can submit feedback
+      allow read, update, delete: if isAdmin(); // only admins can read it
+    }
+
     // 3. ALL OTHER COLLECTIONS (Reframe, Audiobook, etc.)
     match /{collection}/{document=**} {
       allow read, write: if isAuthenticated();

@@ -36,6 +36,8 @@ import { OnboardingTour } from './components/OnboardingTour';
 import { ChatBot } from './components/ChatBot';
 import { GeminiLab } from './components/GeminiLab';
 import { ProfileModal } from './components/ProfileModal';
+import { FeedbackModal } from './components/FeedbackModal';
+import { MessageSquare } from 'lucide-react';
 import { db } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 import { collection, query, where, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore';
@@ -119,6 +121,7 @@ export default function App() {
   const [isBillingOpen, setIsBillingOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLabOpen, setIsLabOpen] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [hoveredToolId, setHoveredToolId] = useState<string | null>(null);
   const [usageLogs, setUsageLogs] = useState<any[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
@@ -235,6 +238,20 @@ export default function App() {
         isOpen={isAuthModalOpen} 
         onClose={() => setIsAuthModalOpen(false)} 
       />
+
+      <FeedbackModal 
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+      />
+
+      {/* Floating Feedback Button */}
+      <button
+        onClick={() => setIsFeedbackOpen(true)}
+        className="fixed bottom-8 left-8 z-[50] group bg-zinc-900 border border-white/10 text-white/70 hover:text-white px-4 py-3 rounded-full flex items-center gap-2 shadow-2xl hover:bg-zinc-800 transition-all hover:-translate-y-1"
+      >
+        <MessageSquare className="w-5 h-5 group-hover:text-pink-500 transition-colors" />
+        <span className="font-medium text-sm">Feedback</span>
+      </button>
 
       <OnboardingTour />
       <ChatBot />
