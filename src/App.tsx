@@ -32,7 +32,6 @@ import { useFirebase } from './components/FirebaseProvider';
 import { AuthModal } from './components/AuthModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { BillingModal } from './components/BillingModal';
-import { OnboardingTour } from './components/OnboardingTour';
 import { ChatBot } from './components/ChatBot';
 import { GeminiLab } from './components/GeminiLab';
 import { ProfileModal } from './components/ProfileModal';
@@ -253,7 +252,6 @@ export default function App() {
         <span className="font-medium text-sm">Feedback</span>
       </button>
 
-      <OnboardingTour />
       <ChatBot />
       <nav className="fixed top-0 w-full z-[60] border-b border-white/5 bg-black/40 backdrop-blur-2xl">
         <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">

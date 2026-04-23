@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+# Make sure .htaccess is moved to build directory
+mkdir -p public
+cat << 'EOF' > public/.htaccess
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
@@ -7,3 +11,4 @@
   RewriteCond %{REQUEST_FILENAME} !-l
   RewriteRule . /index.html [L]
 </IfModule>
+EOF
