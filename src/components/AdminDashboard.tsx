@@ -4,6 +4,7 @@ import { useFirebase } from './FirebaseProvider';
 import { db } from '../firebase';
 import { collection, query, getDocs, doc, setDoc, updateDoc, deleteDoc, increment, serverTimestamp, orderBy } from 'firebase/firestore';
 import { Users, Key, Package, Tag, ShieldAlert, CheckCircle, X, CreditCard, Settings } from 'lucide-react';
+import { ApiKeyManager } from './ApiKeyManager';
 
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const { profile } = useFirebase();
@@ -342,36 +343,43 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
             {/* API KEYS TAB */}
             {activeTab === 'api' && isSuperAdmin && (
-              <div className="max-w-2xl">
-                <h2 className="text-xl font-bold mb-2">Global API Keys</h2>
-                <p className="text-white/60 text-sm mb-6">Set the ecosystem API keys here. All tools in the Auurio ecosystem will fetch and use these keys.</p>
-                
-                <div className="space-y-6">
+              <div className="grid lg:grid-cols-2 gap-8">
+                <div className="space-y-8">
                   <div>
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Gemini API Key</label>
-                    <input
-                      type="password"
-                      value={geminiKey}
-                      onChange={(e) => setGeminiKey(e.target.value)}
-                      className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
-                      placeholder="AIzaSy..."
-                    />
+                    <h2 className="text-xl font-bold mb-2">Global System Keys</h2>
+                    <p className="text-white/60 text-sm mb-6">Manage the high-availability API key pool for the entire Auurio ecosystem.</p>
+                    <ApiKeyManager defaultSource="global" />
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Hugging Face API Key</label>
-                    <input
-                      type="password"
-                      value={huggingfaceKey}
-                      onChange={(e) => setHuggingfaceKey(e.target.value)}
-                      className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500"
-                      placeholder="hf_..."
-                    />
+                <div className="space-y-8">
+                  <h2 className="text-xl font-bold mb-2">Legacy Integrations</h2>
+                  <p className="text-white/60 text-sm mb-6">Backup single-key settings for legacy system modules.</p>
+                  <div className="space-y-6 bg-white/[0.03] border border-white/5 rounded-3xl p-6">
+                    <div>
+                      <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Gemini API Key (Legacy)</label>
+                      <input
+                        type="password"
+                        value={geminiKey}
+                        onChange={(e) => setGeminiKey(e.target.value)}
+                        className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500 font-mono text-sm mb-4"
+                        placeholder="AIza..."
+                      />
+                      
+                      <label className="block text-xs font-medium text-white/60 mb-1.5 uppercase tracking-wider">Hugging Face API Key</label>
+                      <input
+                        type="password"
+                        value={huggingfaceKey}
+                        onChange={(e) => setHuggingfaceKey(e.target.value)}
+                        className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:outline-none focus:border-orange-500 font-mono text-sm"
+                        placeholder="hf_..."
+                      />
+                    </div>
+
+                    <button onClick={saveApiKeys} className="w-full bg-white/5 border border-white/10 text-white font-bold px-6 py-3 rounded-xl hover:bg-orange-500 hover:text-black hover:border-orange-500 transition-all uppercase text-[10px] tracking-[0.2em]">
+                      Update Legacy Registry
+                    </button>
                   </div>
-
-                  <button onClick={saveApiKeys} className="bg-orange-500 text-black font-bold px-6 py-3 rounded-xl hover:bg-orange-400">
-                    Save API Keys
-                  </button>
                 </div>
               </div>
             )}

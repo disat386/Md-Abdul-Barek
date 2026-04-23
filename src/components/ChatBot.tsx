@@ -1,10 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MessageSquare, X, Send, User, Bot, Loader2 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
-
-const aiApiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
-const ai = new GoogleGenAI({ apiKey: aiApiKey });
+import { geminiKeyService } from '../services/geminiKeyService';
 
 interface Message {
   role: 'user' | 'bot';
@@ -52,23 +49,24 @@ export const ChatBot = () => {
     setIsLoading(true);
 
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [...messages.map(m => ({
-          role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.content }]
-        })), { role: 'user', parts: [{ text: userMessage }] }],
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          maxOutputTokens: 500,
-        },
+      const history = messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.content }]
+      }));
+
+      const botResponse = await geminiKeyService.executeWithRotation(async (ai) => {
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [...history, { role: 'user', parts: [{ text: userMessage }] }]
+        });
+        return result.text || "I'm sorry, I couldn't process that request.";
       });
 
-      const botResponse = response.text || "I'm sorry, I couldn't process that request.";
       setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('ChatBot Error:', error);
-      setMessages(prev => [...prev, { role: 'bot', content: 'Sorry, I encountered an error. Please try again later.' }]);
+      const errorMessage = error?.message || 'Unknown error occurred.';
+      setMessages(prev => [...prev, { role: 'bot', content: `Error: ${errorMessage}. Please check your API keys or connection.` }]);
     } finally {
       setIsLoading(false);
     }
