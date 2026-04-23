@@ -36,9 +36,9 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          server-dir: public_html/
+          server-dir: ./
           log-level: verbose
-          state-name: .deploy-sync-state-v006.json
+          state-name: .deploy-sync-state-v007.json
           timeout: 900000
           protocol: ftp
           port: 21
