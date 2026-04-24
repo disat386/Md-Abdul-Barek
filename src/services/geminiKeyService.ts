@@ -35,8 +35,8 @@ class GeminiKeyService {
       }
     }
     
-    // Add default key from process.env if it's not already there and valid
-    const envKey = process.env.GEMINI_API_KEY;
+    // Add default key from process.env or import.meta.env if it's not already there and valid
+    const envKey = (import.meta.env?.VITE_GEMINI_API_KEY as string) || (process.env.GEMINI_API_KEY as string);
     const isValidEnvKey = envKey && envKey !== 'undefined' && envKey.trim().length > 10;
 
     if (isValidEnvKey && !localKeys.some(k => k.key === envKey)) {
@@ -71,6 +71,8 @@ class GeminiKeyService {
           .filter(k => k.key && k.key.trim().length > 0);
 
         this.updateMasterKeyList(poolKeys);
+      }, (error) => {
+        console.error("[GeminiRotation] Firestore Snapshot error (gemini_keys):", error);
       });
 
       // 2. Sync from the legacy 'api_keys/global' document
@@ -78,17 +80,68 @@ class GeminiKeyService {
         if (snapshot.exists()) {
           const data = snapshot.data();
           if (data.gemini && data.gemini.trim()) {
-            const legacyKey: ApiKeyEntry = {
+            this.updateMasterKeyList([{
               id: 'legacy-global',
               key: data.gemini,
               isWorking: true,
               lastUsed: 0,
               errorCount: 0,
               source: 'global'
-            };
-            this.updateMasterKeyList([legacyKey]);
+            }]);
           }
         }
+      }, (error) => {
+        console.error("[GeminiRotation] Firestore Snapshot error (api_keys/global):", error);
+      });
+
+      // 3. Sync from the dashboard key path 'api_keys/gemini'
+      onSnapshot(doc(db, 'api_keys', 'gemini'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data.key && data.key.trim()) {
+            this.updateMasterKeyList([{
+              id: 'dashboard-gemini',
+              key: data.key,
+              isWorking: true,
+              lastUsed: 0,
+              errorCount: 0,
+              source: 'global'
+            }]);
+          }
+        }
+      }, (error) => {
+        console.error("[GeminiRotation] Firestore Snapshot error (api_keys/gemini):", error);
+      });
+
+      // 4. Sync from the 'settings/api_keys' path (requested in protocol)
+      onSnapshot(doc(db, 'settings', 'api_keys'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          const keys = data.geminiPool || [];
+          if (Array.isArray(keys)) {
+             const poolKeys = keys.map((k: string, i: number) => ({
+              id: `pool-${i}`,
+              key: k,
+              isWorking: true,
+              lastUsed: 0,
+              errorCount: 0,
+              source: 'global' as const
+            })).filter(k => k.key && k.key.length > 10);
+            this.updateMasterKeyList(poolKeys);
+          }
+          if (data.gemini && data.gemini.trim()) {
+            this.updateMasterKeyList([{
+              id: 'settings-gemini',
+              key: data.gemini,
+              isWorking: true,
+              lastUsed: 0,
+              errorCount: 0,
+              source: 'global'
+            }]);
+          }
+        }
+      }, (error) => {
+        console.error("[GeminiRotation] Firestore Snapshot error (settings/api_keys):", error);
       });
     } catch (error) {
       console.error("Failed to sync global keys:", error);
@@ -233,27 +286,27 @@ class GeminiKeyService {
       }
 
       try {
-        console.log(`Attempting generation with key: ${activeKey.id.slice(0, 8)}... (source: ${activeKey.source})`);
+        console.log(`[GeminiRotation] Attempting with key: ${activeKey.id.slice(0, 8)}... (Source: ${activeKey.source})`);
         
-        // The @google/genai package (unified SDK) MUST use the object pattern with apiKey
+        // Ensure the rotation protocol handles common network issues
         const ai = new GoogleGenAI({ apiKey: activeKey.key });
         const result = await operation(ai);
         
+        console.log(`[GeminiRotation] SUCCESS with key: ${activeKey.id.slice(0, 8)}`);
         // Success! Update metrics asynchronously and silently
         this.updateKeyMetrics(activeKey, true).catch(console.error);
         
         return result;
       } catch (error: any) {
-        console.error(`Error with key ${activeKey.id}:`, error);
-        attempts++;
-        
         const errorMsg = error.message || String(error);
+        console.error(`[GeminiRotation] FAILURE with key ${activeKey.id.slice(0, 8)}:`, errorMsg);
         
-        // Specific check for the missing key error from SDK
-        if (errorMsg.includes('API Key must be set')) {
-          lastError = new Error('The selected API key appears to be invalid or empty. Please check your settings.');
-        } else {
-          lastError = error;
+        attempts++;
+        lastError = error;
+
+        // Specific logic for live domain issues
+        if (errorMsg.includes('API key not valid') || errorMsg.includes('API key expired')) {
+          console.warn("[GeminiRotation] Key seems invalid or restricted. If this is a live domain, ensure the key in GCP Console allows this origin.");
         }
 
         // Determine if key should be marked as bad (only for strictly invalid status)
