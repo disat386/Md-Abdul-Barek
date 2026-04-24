@@ -35,8 +35,9 @@ class GeminiKeyService {
       }
     }
     
-    // Add default key from process.env or import.meta.env if it's not already there and valid
-    const envKey = (import.meta.env?.VITE_GEMINI_API_KEY as string) || (process.env.GEMINI_API_KEY as string);
+    // Safely check for API keys in both process.env and import.meta.env
+    const envKey = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || 
+                   ((import.meta as any).env?.VITE_GEMINI_API_KEY as string);
     const isValidEnvKey = envKey && envKey !== 'undefined' && envKey.trim().length > 10;
 
     if (isValidEnvKey && !localKeys.some(k => k.key === envKey)) {
@@ -56,93 +57,109 @@ class GeminiKeyService {
   private syncGlobalKeys() {
     try {
       // 1. Sync from the new 'gemini_keys' collection (rotation pool)
-      const q = query(collection(db, 'gemini_keys'));
-      onSnapshot(q, (snapshot) => {
-        const poolKeys = snapshot.docs
-          .map(d => ({
-            id: d.id,
-            key: d.data().key,
-            isWorking: d.data().isWorking ?? true,
-            lastUsed: d.data().lastUsed ?? 0,
-            errorCount: d.data().errorCount ?? 0,
-            lastError: d.data().lastError ?? '',
-            source: 'global' as const
-          }))
-          .filter(k => k.key && k.key.trim().length > 0);
+      try {
+        const q = query(collection(db, 'gemini_keys'));
+        onSnapshot(q, (snapshot) => {
+          const poolKeys = snapshot.docs
+            .map(d => ({
+              id: d.id,
+              key: d.data().key,
+              isWorking: d.data().isWorking ?? true,
+              lastUsed: d.data().lastUsed ?? 0,
+              errorCount: d.data().errorCount ?? 0,
+              lastError: d.data().lastError ?? '',
+              source: 'global' as const
+            }))
+            .filter(k => k.key && k.key.trim().length > 0);
 
-        this.updateMasterKeyList(poolKeys);
-      }, (error) => {
-        console.error("[GeminiRotation] Firestore Snapshot error (gemini_keys):", error);
-      });
+          this.updateMasterKeyList(poolKeys);
+        }, (error) => {
+          console.warn("[GeminiRotation] Skipping 'gemini_keys' collection - likely missing or access denied.", error.message);
+        });
+      } catch (err) {
+        console.warn("[GeminiRotation] Failed to initialize 'gemini_keys' listener");
+      }
 
       // 2. Sync from the legacy 'api_keys/global' document
-      onSnapshot(doc(db, 'api_keys', 'global'), (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          if (data.gemini && data.gemini.trim()) {
-            this.updateMasterKeyList([{
-              id: 'legacy-global',
-              key: data.gemini,
-              isWorking: true,
-              lastUsed: 0,
-              errorCount: 0,
-              source: 'global'
-            }]);
+      try {
+        onSnapshot(doc(db, 'api_keys', 'global'), (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data.gemini && data.gemini.trim()) {
+              this.updateMasterKeyList([{
+                id: 'legacy-global',
+                key: data.gemini,
+                isWorking: true,
+                lastUsed: 0,
+                errorCount: 0,
+                source: 'global'
+              }]);
+            }
           }
-        }
-      }, (error) => {
-        console.error("[GeminiRotation] Firestore Snapshot error (api_keys/global):", error);
-      });
+        }, (error) => {
+          console.warn("[GeminiRotation] Skipping 'api_keys/global' - likely missing.", error.message);
+        });
+      } catch (err) {
+        console.warn("[GeminiRotation] Failed to initialize legacy listener");
+      }
 
       // 3. Sync from the dashboard key path 'api_keys/gemini'
-      onSnapshot(doc(db, 'api_keys', 'gemini'), (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          if (data.key && data.key.trim()) {
-            this.updateMasterKeyList([{
-              id: 'dashboard-gemini',
-              key: data.key,
-              isWorking: true,
-              lastUsed: 0,
-              errorCount: 0,
-              source: 'global'
-            }]);
+      try {
+        onSnapshot(doc(db, 'api_keys', 'gemini'), (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data.key && data.key.trim()) {
+              this.updateMasterKeyList([{
+                id: 'dashboard-gemini',
+                key: data.key,
+                isWorking: true,
+                lastUsed: 0,
+                errorCount: 0,
+                source: 'global'
+              }]);
+            }
           }
-        }
-      }, (error) => {
-        console.error("[GeminiRotation] Firestore Snapshot error (api_keys/gemini):", error);
-      });
+        }, (error) => {
+          console.warn("[GeminiRotation] Skipping 'api_keys/gemini' listener.", error.message);
+        });
+      } catch (err) {
+        console.warn("[GeminiRotation] Failed to initialize dashboard listener");
+      }
 
-      // 4. Sync from the 'settings/api_keys' path (requested in protocol)
-      onSnapshot(doc(db, 'settings', 'api_keys'), (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          const keys = data.geminiPool || [];
-          if (Array.isArray(keys)) {
-             const poolKeys = keys.map((k: string, i: number) => ({
-              id: `pool-${i}`,
-              key: k,
-              isWorking: true,
-              lastUsed: 0,
-              errorCount: 0,
-              source: 'global' as const
-            })).filter(k => k.key && k.key.length > 10);
-            this.updateMasterKeyList(poolKeys);
+      // 4. Sync from the 'settings/api_keys' path
+      try {
+        onSnapshot(doc(db, 'settings', 'api_keys'), (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            const keys = data.geminiPool || [];
+            if (Array.isArray(keys)) {
+               const poolKeys = keys.map((k: string, i: number) => ({
+                id: `pool-${i}`,
+                key: k,
+                isWorking: true,
+                lastUsed: 0,
+                errorCount: 0,
+                source: 'global' as const
+              })).filter(k => k.key && k.key.length > 10);
+              this.updateMasterKeyList(poolKeys);
+            }
+            if (data.gemini && data.gemini.trim()) {
+              this.updateMasterKeyList([{
+                id: 'settings-gemini',
+                key: data.gemini,
+                isWorking: true,
+                lastUsed: 0,
+                errorCount: 0,
+                source: 'global'
+              }]);
+            }
           }
-          if (data.gemini && data.gemini.trim()) {
-            this.updateMasterKeyList([{
-              id: 'settings-gemini',
-              key: data.gemini,
-              isWorking: true,
-              lastUsed: 0,
-              errorCount: 0,
-              source: 'global'
-            }]);
-          }
-        }
-      }, (error) => {
-        console.error("[GeminiRotation] Firestore Snapshot error (settings/api_keys):", error);
-      });
+        }, (error) => {
+          console.warn("[GeminiRotation] Skipping 'settings/api_keys' listener.", error.message);
+        });
+      } catch (err) {
+        console.warn("[GeminiRotation] Failed to initialize settings listener");
+      }
     } catch (error) {
       console.error("Failed to sync global keys:", error);
     }
