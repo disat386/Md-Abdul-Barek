@@ -39,14 +39,8 @@ interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errorMsg = error instanceof Error ? error.message : String(error);
-  
-  if (errorMsg.includes("unauthorized-domain") || errorMsg.includes("auth/unauthorized-domain")) {
-    console.error("CRITICAL: This domain is not authorized in Firebase Console. Please add it to Authentication -> Settings -> Authorized domains.");
-  }
-
   const errInfo: FirestoreErrorInfo = {
-    error: errorMsg,
+    error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
