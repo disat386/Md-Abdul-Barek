@@ -35,8 +35,13 @@ service cloud.firestore {
       }
     }
 
-    // 2. PROTECTED SYSTEM COLLECTIONS (Readable by anyone to prevent auth timing issues)
+    // 2. PROTECTED SYSTEM COLLECTIONS
     match /api_keys/{keyId} {
+      allow read: if true; 
+      allow write: if isSuperAdmin();
+    }
+
+    match /gemini_keys/{keyId} {
       allow read: if true; 
       allow write: if isSuperAdmin();
     }
