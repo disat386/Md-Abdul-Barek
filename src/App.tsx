@@ -790,6 +790,62 @@ export default function App() {
         </div>
       </section>
 
+      {/* Detailed Protocol Briefs */}
+      <section className="py-48 relative z-10 border-t border-white/5 bg-zinc-950/50">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="mb-32">
+            <div className="text-orange-500 font-mono text-[10px] uppercase tracking-[0.5em] mb-6 inline-block">Deep Technical Overview</div>
+            <h2 className="text-6xl lg:text-7xl font-display font-black tracking-tight uppercase mb-10">PROTOCOL <span className="text-orange-500">SPECIFICATIONS</span></h2>
+            <p className="text-white/40 max-w-2xl font-light leading-relaxed">
+              Every tool in the Auurio ecosystem is built on proprietary AI architectures, tuned for professional-grade reliability and synchronized through a unified compute ledger.
+            </p>
+          </div>
+
+          <div className="space-y-10">
+            {tools.map((tool, idx) => (
+              <motion.div 
+                key={tool.id}
+                initial={{ opacity: 0, x: idx % 2 === 0 ? -20 : 20 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                className="glass-card p-12 lg:p-16 rounded-[4rem] border-white/5 hover:bg-white/[0.03] transition-all group"
+              >
+                <div className="grid lg:grid-cols-3 gap-12 items-center">
+                  <div className="flex items-center gap-8">
+                    <div className={`w-24 h-24 ${tool.bg} rounded-3xl flex items-center justify-center border border-white/10 shadow-2xl shadow-black group-hover:scale-105 transition-transform duration-500`}>
+                      <tool.icon className={`w-10 h-10 ${tool.color}`} />
+                    </div>
+                    <div>
+                      <h3 className="text-3xl font-display font-black tracking-tight uppercase mb-2">{tool.name}</h3>
+                      <div className="text-[10px] font-mono text-orange-500/60 uppercase tracking-widest">{tool.subdomain}</div>
+                    </div>
+                  </div>
+                  <div className="lg:col-span-2">
+                    <p className="text-white/40 text-lg leading-relaxed font-light italic mb-8">
+                      {tool.description}
+                    </p>
+                    <div className="grid sm:grid-cols-3 gap-6">
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                        <div className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Architecture</div>
+                        <div className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Neural Core V4</div>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                        <div className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Latency</div>
+                        <div className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Sub-100ms In-Proc</div>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
+                        <div className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Output Fidelity</div>
+                        <div className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Production Grade</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Ecosystem Features */}
       <section id="features" className="py-48 relative overflow-hidden z-10 border-y border-white/5 bg-white/[0.01]">
         <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-32 items-center">
