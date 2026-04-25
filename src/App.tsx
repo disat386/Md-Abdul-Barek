@@ -58,7 +58,7 @@ const PREVIEW_LINKS = {
   motion: 'https://ais-pre-f5hb6v5saipeg6gnxnp35p-7801728734.asia-southeast1.run.app',
   marketra: 'https://ais-pre-8b4f02ddb21bb2d198fb0a42cb5b8dd1-7801728734.asia-southeast1.run.app',
   news: 'https://newslite.auurio.com/',
-  lab: 'https://lab-preview.run.app'
+  lab: 'https://contentlab.auurio.com'
 };
 
 const tools = [
@@ -110,7 +110,7 @@ const tools = [
     color: 'text-pink-500',
     bg: 'bg-pink-500/10',
     url: PREVIEW_LINKS.lab,
-    subdomain: 'lab.auurio.com'
+    subdomain: 'contentlab.auurio.com'
   }
 ];
 
