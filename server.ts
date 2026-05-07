@@ -10,9 +10,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // In production (dist/server.js), __dirname is the 'dist' folder.
-// We need to look for config in the root (one level up).
-const isProd = process.env.NODE_ENV === 'production' || __dirname.endsWith('dist');
-const rootDir = isProd ? path.join(__dirname, '..') : process.cwd();
+// We need to look for config in the root.
+const isProd = process.env.NODE_ENV === 'production' || __dirname.includes('dist');
+const rootDir = isProd ? path.resolve(__dirname, '..') : process.cwd();
+
+console.log('--- Server Path Debug ---');
+console.log('__dirname:', __dirname);
+console.log('rootDir:', rootDir);
+console.log('isProd:', isProd);
 
 // Load config manually to avoid crash if file is missing in production
 let firebaseConfig: any = {};
@@ -20,9 +25,12 @@ try {
   const configFile = path.join(rootDir, 'firebase-applet-config.json');
   if (fs.existsSync(configFile)) {
     firebaseConfig = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+    console.log('Firebase config loaded successfully.');
+  } else {
+    console.warn('Firebase config file NOT found at:', configFile);
   }
 } catch (err) {
-  console.warn('Firebase config file not found or invalid at:', path.join(rootDir, 'firebase-applet-config.json'));
+  console.warn('Error reading Firebase config:', err);
 }
 
 // Initialize Firebase Admin
@@ -194,10 +202,11 @@ async function startServer() {
   } else {
     // In production, the file might be running from the root or a dist folder
     // Since server.js is inside dist, the static files are in the same folder
-    const distPath = isProd ? __dirname : path.join(process.cwd(), 'dist');
+    const distPath = path.join(rootDir, 'dist');
     const indexPath = path.join(distPath, 'index.html');
     
     console.log(`Production server serving static files from: ${distPath}`);
+    console.log(`Index file path: ${indexPath}`);
     
     app.use(express.static(distPath));
     app.get('*', (req, res) => {

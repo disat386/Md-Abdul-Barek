@@ -39,10 +39,8 @@ jobs:
           protocol: sftp
           local-dir: ./
           # We exclude node_modules because we usually run npm install on the server
-          # or we deploy the whole thing if it's a simple Node setup
           exclude: |
             **/.git*
             **/.git*/**
             **/node_modules/**
             .env
-            firebase-applet-config.json
