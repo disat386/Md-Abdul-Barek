@@ -187,10 +187,17 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
+    // In production, the file might be running from the root or a dist folder
     const distPath = path.join(process.cwd(), 'dist');
+    const indexPath = path.join(distPath, 'index.html');
+    
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Frontend build not found. Please run npm run build.');
+      }
     });
   }
 
