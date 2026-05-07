@@ -29,14 +29,14 @@ jobs:
       - name: List files (Debug)
         run: ls -R
 
-      # Use SFTP to deploy to Hostinger
-      - name: SFTP Deploy
+      # Use FTP/FTPS to deploy to Hostinger
+      - name: FTP Deploy
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.HOSTINGER_FTP_SERVER }}
           username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
           password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
-          protocol: sftp
+          protocol: ftps
           local-dir: ./
           # We exclude node_modules because we usually run npm install on the server
           exclude: |
