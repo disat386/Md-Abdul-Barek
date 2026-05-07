@@ -188,11 +188,39 @@ async function startServer() {
 
   // API Health Check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', service: 'Auurio Hub', uptime: process.uptime() });
+    res.json({ 
+      status: 'ok', 
+      service: 'Auurio Hub', 
+      uptime: process.uptime(),
+      env: process.env.NODE_ENV,
+      rootDir
+    });
+  });
+
+  // Diagnostic endpoint to help find files on Hostinger
+  app.get('/debug-paths', (req, res) => {
+    try {
+      res.json({
+        __dirname,
+        processCwd: process.cwd(),
+        isProd,
+        rootDir,
+        distPath: path.join(rootDir, 'dist'),
+        indexPath: path.join(rootDir, 'dist', 'index.html'),
+        indexPathExists: fs.existsSync(path.join(rootDir, 'dist', 'index.html')),
+        env: process.env.NODE_ENV,
+        nodeVersion: process.version,
+        rootDirContents: fs.existsSync(rootDir) ? fs.readdirSync(rootDir) : 'NOT FOUND',
+        distContents: fs.existsSync(path.join(rootDir, 'dist')) ? fs.readdirSync(path.join(rootDir, 'dist')) : 'NOT FOUND'
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProd) {
+    console.log('Starting in DEVELOPMENT mode with Vite middleware');
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -201,7 +229,6 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // In production, the file might be running from the root or a dist folder
-    // Since server.js is inside dist, the static files are in the same folder
     const distPath = path.join(rootDir, 'dist');
     const indexPath = path.join(distPath, 'index.html');
     
@@ -211,25 +238,8 @@ async function startServer() {
     console.log(`- indexPath: ${indexPath}`);
     console.log(`- indexPath exists: ${fs.existsSync(indexPath)}`);
     
-    // Diagnostic endpoint to help find files on Hostinger
-    app.get('/debug-paths', (req, res) => {
-      res.json({
-        __dirname,
-        processCwd: process.cwd(),
-        isProd,
-        rootDir,
-        distPath,
-        indexPath,
-        indexPathExists: fs.existsSync(indexPath),
-        env: process.env.NODE_ENV,
-        nodeVersion: process.version,
-        rootDirContents: fs.existsSync(rootDir) ? fs.readdirSync(rootDir) : 'NOT FOUND',
-        distContents: fs.existsSync(distPath) ? fs.readdirSync(distPath) : 'NOT FOUND'
-      });
-    });
-
-    app.use('/assets', express.static(path.join(distPath, 'assets')));
     app.use(express.static(distPath));
+    app.use('/assets', express.static(path.join(distPath, 'assets')));
     
     app.get('*', (req, res) => {
       if (fs.existsSync(indexPath)) {
@@ -237,12 +247,18 @@ async function startServer() {
       } else {
         res.status(404).send(`
           <html>
-            <body style="font-family: sans-serif; padding: 2rem;">
-              <h1>Frontend build not found</h1>
+            <body style="font-family: sans-serif; padding: 2rem; background: #0f172a; color: white;">
+              <h1>Auurio: Frontend build not found</h1>
               <p>The server is running but cannot find the <code>index.html</code> file.</p>
               <p>Expected path: <code>${indexPath}</code></p>
-              <hr/>
-              <p>Please check your Hostinger file manager to ensure the <code>dist</code> folder exists in your app root.</p>
+              <hr style="border-color: #334155;"/>
+              <p>Action Required:</p>
+              <ul>
+                <li>Check your Hostinger file manager to ensure the <code>dist</code> folder exists in your app root.</li>
+                <li>Make sure you have run <code>npm run build</code> locally or via GitHub Actions.</li>
+                <li>Verify your Node.js application "Application Root" setting in the Hostinger panel.</li>
+              </ul>
+              <p><a href="/debug-paths" style="color: #38bdf8;">View Debug Info</a></p>
             </body>
           </html>
         `);
