@@ -56,48 +56,8 @@ class AIService {
     return this.sharedAudioCtx;
   }
 
-  private async callVertexProxy(prompt: string, modelId: string): Promise<string | null> {
-    if (!this.config || !this.config.credentialsJson) return null;
-
-    try {
-      console.log(`Auurio: Routing via Vertex Proxy for model: ${modelId}`);
-      const response = await fetch('/api/vertex/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: this.config.projectId,
-          region: this.config.region,
-          modelId: modelId || this.config.modelId || 'gemini-1.5-flash-002',
-          credentials: this.config.credentialsJson,
-          contents: [{ role: 'user', parts: [{ text: prompt }] }]
-        })
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error?.message || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      // Vertex response structure
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-    } catch (err: any) {
-      console.error("Auurio: Vertex Proxy failed:", err.message);
-      return null;
-    }
-  }
-
   public async generateText(prompt: string, modelOverride?: string, onProgress?: (status: string) => void): Promise<string> {
     await this.initialize();
-
-      // ARCHITECTURAL RULE: Text generation MUST use Vertex/Primary key.
-      // NEVER use the Legacy API Key Pool for these tasks.
-      if (this.config && this.config.credentialsJson) {
-      onProgress?.("Contacting Vertex AI high-speed engine...");
-      const vertexText = await this.callVertexProxy(prompt, modelOverride || this.config.modelId || 'gemini-1.5-flash-002');
-      if (vertexText) return vertexText;
-      console.warn("Auurio: Vertex Proxy returned empty or failed. Falling back to Gemini API.");
-    }
 
     const models = [
       modelOverride || "gemini-3-flash-preview",

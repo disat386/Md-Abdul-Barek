@@ -469,22 +469,21 @@ export default function AdminPanel({ profile }: { profile: any }) {
     setIsSavingV(true);
     setTestStatus({ type: 'idle' });
     try {
-      const response = await fetch('/api/vertex/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: vConfig.projectId,
-          region: vConfig.region,
-          modelId: vConfig.modelId || 'gemini-1.5-flash',
-          credentials: vConfig.credentialsJson,
-          contents: [{ role: 'user', parts: [{ text: 'Ping' }] }]
-        })
-      });
-      const data = await response.json();
-      if (data.error) {
-        setTestStatus({ type: 'error', message: data.error.message || JSON.stringify(data.error) });
+      // In a static architecture, we test connectivity via the primary Gemini SDK
+      const { GoogleGenAI } = await import('@google/genai');
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+      
+      const genAI = new GoogleGenAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent("Ping");
+      const response = await result.response;
+      const text = response.text();
+      
+      if (text) {
+        setTestStatus({ type: 'success', message: 'Connection Successful! Google AI SDK is active.' });
       } else {
-        setTestStatus({ type: 'success', message: 'Connection Successful! Vertex AI is ready.' });
+        throw new Error("Received empty response from Gemini API.");
       }
     } catch (err: any) {
       setTestStatus({ type: 'error', message: err.message });
@@ -528,7 +527,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
           { id: 'payments', label: 'Payments', icon: CreditCard },
           { id: 'coupons', label: 'Coupons', icon: Ticket },
           { id: 'keys', label: 'API Pool', icon: Key },
-          { id: 'vertex', label: 'Vertex AI', icon: Database },
           { id: 'settings', label: 'Settings', icon: SettingsIcon },
         ].map((tab) => (
           <button 
@@ -880,110 +878,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
                    >
                      Update Platform Configuration
                    </button>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'vertex' && (
-              <motion.div
-                key="vertex"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="bg-zinc-900 border border-white/5 rounded-3xl p-8 space-y-8"
-              >
-                <div className="flex items-center justify-between border-b border-white/5 pb-6">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-orange-500/10 rounded-2xl">
-                      <Database className="w-6 h-6 text-orange-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold">Vertex AI Integration</h3>
-                      <p className="text-xs text-zinc-500 font-medium">Connect your Google Cloud Project resources.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button 
-                      onClick={handleTestConnection}
-                      disabled={isSavingV}
-                      className="flex items-center gap-2 bg-blue-500/10 text-blue-500 font-black uppercase tracking-tighter px-6 py-2.5 rounded-xl hover:bg-blue-500/20 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      <RotateCw className={cn("w-4 h-4", isSavingV && "animate-spin")} />
-                      Test Connection
-                    </button>
-                    <button 
-                      onClick={handleSaveVertex}
-                      disabled={isSavingV}
-                      className="flex items-center gap-2 bg-orange-500 text-black font-black uppercase tracking-tighter px-6 py-2.5 rounded-xl hover:bg-orange-400 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      {isSavingV ? <RotateCw className="w-4 h-4 animate-spin" /> : <SaveIcon className="w-4 h-4" />}
-                      Save Changes
-                    </button>
-                  </div>
-                </div>
-
-                {testStatus.type !== 'idle' && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className={cn(
-                      "p-4 rounded-2xl border flex items-center gap-3",
-                      testStatus.type === 'success' ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-red-500/10 border-red-500/20 text-red-500"
-                    )}
-                  >
-                    {testStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-                    <p className="text-xs font-bold uppercase tracking-tight truncate flex-1">{testStatus.message}</p>
-                  </motion.div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Project ID</label>
-                    <input
-                      type="text"
-                      value={vConfig.projectId}
-                      onChange={(e) => setVConfig({...vConfig, projectId: e.target.value})}
-                      placeholder="e.g. auurio-platform-4231"
-                      className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:border-orange-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Location / Region</label>
-                    <select
-                      value={vConfig.region}
-                      onChange={(e) => setVConfig({...vConfig, region: e.target.value})}
-                      className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:border-orange-500 outline-none transition-all"
-                    >
-                      <option value="us-central1">us-central1 (Iowa)</option>
-                      <option value="us-east1">us-east1 (South Carolina)</option>
-                      <option value="europe-west1">europe-west1 (Belgium)</option>
-                      <option value="asia-southeast1">asia-southeast1 (Singapore)</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Model ID</label>
-                    <input
-                      type="text"
-                      value={vConfig.modelId}
-                      onChange={(e) => setVConfig({...vConfig, modelId: e.target.value})}
-                      placeholder="e.g. gemini-1.5-flash-002"
-                      className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:border-orange-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <div className="flex items-center justify-between px-1">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Service Account Key (JSON)</label>
-                      <span className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest flex items-center gap-1">
-                        <ShieldCheck className="w-2.5 h-2.5" /> SECURE / SERVER-ONLY
-                      </span>
-                    </div>
-                    <textarea
-                      value={vConfig.credentialsJson}
-                      onChange={(e) => handleCredentialsChange(e.target.value)}
-                      placeholder='{ "type": "service_account", ... }'
-                      className="w-full bg-black border border-white/10 rounded-2xl p-4 text-xs font-mono text-zinc-400 focus:border-orange-500 outline-none transition-all h-48 custom-scrollbar resize-none"
-                    />
-                  </div>
                 </div>
               </motion.div>
             )}

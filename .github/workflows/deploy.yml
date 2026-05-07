@@ -37,10 +37,7 @@ jobs:
           username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
           password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
           protocol: ftps
-          local-dir: ./
-          # We exclude node_modules because we usually run npm install on the server
+          local-dir: ./dist/
+          # No exclusions needed when deploying only the dist folder
           exclude: |
-            **/.git*
-            **/.git*/**
             **/node_modules/**
-            .env
