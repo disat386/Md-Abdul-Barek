@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { 
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['sub-admin', 'super-admin']; 
+    }
+    function isSuperAdmin() {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super-admin';
+    }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // --- Collections ---
+
+    // Users: Owner can read/write profile, admins can see all.
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.role == 'user' && request.resource.data.credits == 100;
+      allow update: if (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastActive', 'displayName', 'photoURL']))
+                     || isSuperAdmin();
+    }
+
+    // Stories: Owner can read/write, admins can read.
+    match /stories/{storyId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId) && request.resource.data.userId == request.auth.uid;
+      allow delete: if isOwner(resource.data.userId) || isSuperAdmin();
+    }
+
+    // Audiobooks
+    match /audiobooks/{audioId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isOwner(resource.data.userId) || isSuperAdmin();
+    }
+
+    // Designs
+    match /designs/{designId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isOwner(resource.data.userId) || isSuperAdmin();
+    }
+
+    // Activity
+    match /activity/{activityId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // API Keys: Strictly Admin Only
+    match /api_keys/{keyId} {
+      allow read, write: if isSuperAdmin();
+    }
+  }
+}

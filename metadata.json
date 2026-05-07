@@ -1,0 +1,14 @@
+{
+  "name": "Auurio",
+  "description": "Professional AI Multimedia Production Platform for cinematic storytelling, audiobooks, and social media content.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "AI Storytelling",
+    "Audiobook Production",
+    "Cinematic Image Generation",
+    "Reel & Short Video Creation"
+  ]
+}
