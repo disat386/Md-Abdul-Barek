@@ -205,15 +205,47 @@ async function startServer() {
     const distPath = path.join(rootDir, 'dist');
     const indexPath = path.join(distPath, 'index.html');
     
-    console.log(`Production server serving static files from: ${distPath}`);
-    console.log(`Index file path: ${indexPath}`);
+    console.log(`Production server configuration:`);
+    console.log(`- rootDir: ${rootDir}`);
+    console.log(`- distPath: ${distPath}`);
+    console.log(`- indexPath: ${indexPath}`);
+    console.log(`- indexPath exists: ${fs.existsSync(indexPath)}`);
     
+    // Diagnostic endpoint to help find files on Hostinger
+    app.get('/debug-paths', (req, res) => {
+      res.json({
+        __dirname,
+        processCwd: process.cwd(),
+        isProd,
+        rootDir,
+        distPath,
+        indexPath,
+        indexPathExists: fs.existsSync(indexPath),
+        env: process.env.NODE_ENV,
+        nodeVersion: process.version,
+        rootDirContents: fs.existsSync(rootDir) ? fs.readdirSync(rootDir) : 'NOT FOUND',
+        distContents: fs.existsSync(distPath) ? fs.readdirSync(distPath) : 'NOT FOUND'
+      });
+    });
+
+    app.use('/assets', express.static(path.join(distPath, 'assets')));
     app.use(express.static(distPath));
+    
     app.get('*', (req, res) => {
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
-        res.status(404).send(`Frontend build not found at ${indexPath}. Please run npm run build.`);
+        res.status(404).send(`
+          <html>
+            <body style="font-family: sans-serif; padding: 2rem;">
+              <h1>Frontend build not found</h1>
+              <p>The server is running but cannot find the <code>index.html</code> file.</p>
+              <p>Expected path: <code>${indexPath}</code></p>
+              <hr/>
+              <p>Please check your Hostinger file manager to ensure the <code>dist</code> folder exists in your app root.</p>
+            </body>
+          </html>
+        `);
       }
     });
   }
