@@ -6,19 +6,24 @@ import { GoogleAuth } from 'google-auth-library';
 import admin from 'firebase-admin';
 import fs from 'fs';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// In production (dist/server.js), __dirname is the 'dist' folder.
+// We need to look for config in the root (one level up).
+const isProd = process.env.NODE_ENV === 'production' || __dirname.endsWith('dist');
+const rootDir = isProd ? path.join(__dirname, '..') : process.cwd();
+
 // Load config manually to avoid crash if file is missing in production
 let firebaseConfig: any = {};
 try {
-  const configFile = path.join(process.cwd(), 'firebase-applet-config.json');
+  const configFile = path.join(rootDir, 'firebase-applet-config.json');
   if (fs.existsSync(configFile)) {
     firebaseConfig = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
   }
 } catch (err) {
-  console.warn('Firebase config file not found or invalid');
+  console.warn('Firebase config file not found or invalid at:', path.join(rootDir, 'firebase-applet-config.json'));
 }
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -188,15 +193,18 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // In production, the file might be running from the root or a dist folder
-    const distPath = path.join(process.cwd(), 'dist');
+    // Since server.js is inside dist, the static files are in the same folder
+    const distPath = isProd ? __dirname : path.join(process.cwd(), 'dist');
     const indexPath = path.join(distPath, 'index.html');
+    
+    console.log(`Production server serving static files from: ${distPath}`);
     
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
-        res.status(404).send('Frontend build not found. Please run npm run build.');
+        res.status(404).send(`Frontend build not found at ${indexPath}. Please run npm run build.`);
       }
     });
   }
