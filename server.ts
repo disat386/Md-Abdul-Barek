@@ -4,6 +4,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
+
+// Load environment variables from .env file
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,13 +20,24 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
 
   // Initialize Gemini for Server-side Proxy
-  const genAI = process.env.GEMINI_API_KEY 
-    ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
-    : null;
+  const apiKey = process.env.GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    console.warn("⚠️  Auurio Server: GEMINI_API_KEY is missing from environment. Proxy active but will fail calls.");
+  } else {
+    console.log(`✅ Auurio Server: GEMINI_API_KEY verified (${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}). Proxy ready.`);
+  }
+
+  const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
   // API Routes
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", message: "Auurio stable backend is active" });
+    res.json({ 
+      status: "ok", 
+      message: "Auurio stable backend is active",
+      hasKey: !!apiKey,
+      nodeEnv: process.env.NODE_ENV
+    });
   });
 
   // Proxy for Story Generation

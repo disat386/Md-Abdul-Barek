@@ -88,12 +88,25 @@ class AIService {
               onProgress?.("Script received via secure proxy.");
               return data.text;
             }
+          } else {
+            const data = await proxyRes.json().catch(() => ({}));
+            // If the proxy explicitly failed (e.g. 500 error from server), we catch it here
+            if (proxyRes.status >= 400) {
+              throw new Error(`Server API Error: ${data.error || 'Server side failed to process AI request. Check environment variables.'}`);
+            }
           }
-        } catch (proxyErr) {
-          console.warn("Auurio: Server proxy failed, trying direct fallback.", proxyErr);
+        } catch (proxyErr: any) {
+          console.warn("Auurio: Server proxy failed.", proxyErr);
+          // If the error message came from our explicit throw above, re-throw it to the UI
+          if (proxyErr.message.includes("Server API Error")) throw proxyErr;
         }
 
-        // Direct fallback (works in AI Studio and development)
+        // Direct fallback (ONLY works if in AI Studio or if key is provided in Vite env)
+        const browserKey = process.env.GEMINI_API_KEY; // Northern Lights constraint
+        if (!browserKey && !window.location.hostname.includes("run.app")) {
+           throw new Error("AI Engine requires GEMINI_API_KEY. Please verify your Hostinger/GitHub environment variables.");
+        }
+
         const response = await this.client.models.generateContent({
           model: modelName,
           contents: prompt
@@ -707,13 +720,22 @@ class AIService {
             if (proxyRes.ok) {
               const data = await proxyRes.json();
               if (data.image) return `data:image/png;base64,${data.image}`;
+            } else {
+              const data = await proxyRes.json().catch(() => ({}));
+              throw new Error(`CineGen Proxy Error: ${data.error || 'Server failed to render image. Check GEMINI_API_KEY settings.'}`);
             }
-          } catch (proxyErr) {
-            console.warn(`Auurio: Server proxy for ${currentModel} failed. Trying direct.`, proxyErr);
+          } catch (proxyErr: any) {
+            console.warn(`Auurio: Server proxy for ${currentModel} failed.`, proxyErr);
+            if (proxyErr.message.includes("CineGen Proxy")) throw proxyErr;
           }
         }
 
         if (currentModel.includes("imagen")) {
+          // Direct fallback check
+          if (!process.env.GEMINI_API_KEY && !window.location.hostname.includes("run.app")) {
+            throw new Error("Imagen requires GEMINI_API_KEY in server environment.");
+          }
+          
           // Standard Imagen via @google/genai (Direct)
           const response = await this.client.models.generateImages({
             model: currentModel,
