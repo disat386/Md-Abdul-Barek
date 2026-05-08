@@ -492,13 +492,23 @@ export default function ReelAura({ profile }: { profile: any }) {
       setStatusMessage('Optimizing visual sequence...');
       let missingCount = 1;
       let passes = 0;
-      while (missingCount > 0 && passes < 3) { // 3 rescue passes
+      
+      while (missingCount > 0 && passes < 3) { 
         passes++;
-        const currentScenes = await new Promise<any[]>(res => setScenes(s => { res(s); return s; }));
+        
+        // Safe state peek
+        const currentScenes: any[] = await new Promise(resolve => {
+          setScenes(s => {
+            resolve([...s]);
+            return s;
+          });
+        });
+
         const failedIndices = currentScenes.map((s, i) => {
           const hasImage = s.imageUrl && (s.imageUrl.startsWith('http') || s.imageUrl.length > 1000);
           return (s.status.visual !== 'done' || !hasImage) ? i : -1;
         }).filter(i => i !== -1);
+        
         missingCount = failedIndices.length;
 
         if (missingCount > 0) {
@@ -519,12 +529,19 @@ export default function ReelAura({ profile }: { profile: any }) {
             } catch (e) {
               console.error("Reel Self-heal failed for idx", idx, e);
             }
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 1000));
           }
         }
       }
 
       setStatusMessage('Storyboard Perfected!');
+      setProgress(100);
+
+      // Auto-transition
+      setTimeout(() => {
+        setActiveStep('video');
+        setIsLoading(false);
+      }, 1500);
     } catch (err: any) {
       setError(err.message);
     } finally {
