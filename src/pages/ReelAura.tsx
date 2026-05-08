@@ -406,144 +406,69 @@ export default function ReelAura({ profile }: { profile: any }) {
       const totalScenes = scenes.length;
       let completedCount = 0;
 
-      // Enhance prompts if needed
-      const enhancedScenes = [...scenes];
-      for (let i = 0; i < totalScenes; i++) {
-        if (enhancedScenes[i].imageUrl && enhancedScenes[i].status.visual === 'done') continue;
-        
-        setStatusMessage(`Refining frame ${i + 1}/${totalScenes}...`);
-        const refinementPrompt = `As a cinematic director, expand this basic scene description into a highly detailed, professional visual prompt for an AI image generator. 
-        Focus on: Lighting, Camera Angle, Textures, and Cinematic Mood.
-        STRICT STYLE ENFORCEMENT: The output MUST be in the style of "${theme}". 
-        If style is Anime, use artistic cel-shaded keywords. If Realistic, use photorealistic 8k keywords.
-        Keep it to 2-3 sentences.
-        Original: ${enhancedScenes[i].visualPrompt}
-        Detailed Visual Prompt:`;
-        
-        try {
-          const detailedPrompt = await aiService.generateText(refinementPrompt);
-          enhancedScenes[i].visualPrompt = detailedPrompt.trim();
-        } catch (err) {
-          console.warn("Refining prompt failed, using original.");
+      // Parallel generation for maximum speed as requested
+      const visualTasks = scenes.map(async (scene, index) => {
+        if (scene.imageUrl && scene.status.visual === 'done') {
+          completedCount++;
+          return;
         }
-      }
-      setScenes(enhancedScenes);
 
-      // Parallel generation for speed (Concurrency: 2 for stability)
-      const CONCURRENCY = 2;
-      for (let i = 0; i < totalScenes; i += CONCURRENCY) {
-        const batch = enhancedScenes.slice(i, i + CONCURRENCY);
-        const batchIndices = Array.from({ length: batch.length }, (_, k) => i + k);
+        setScenes(prev => {
+          const next = [...prev];
+          next[index] = { ...next[index], status: { ...next[index].status, visual: 'processing' } };
+          return next;
+        });
 
-        await Promise.all(batch.map(async (scene, batchIdx) => {
-          const index = batchIndices[batchIdx];
+        try {
+          const url = await generateSingleSceneImage(scene);
           
-          if (scene.imageUrl && scene.status.visual === 'done') {
-            completedCount++;
-            return;
-          }
-
           setScenes(prev => {
             const next = [...prev];
-            next[index] = { ...next[index], status: { ...next[index].status, visual: 'processing' } };
+            next[index] = { 
+              ...next[index], 
+              imageUrl: url, 
+              status: { ...next[index].status, visual: 'done' } 
+            };
+            return next;
+          });
+          
+          setImages(prev => {
+            const next = [...prev];
+            next[index] = url;
             return next;
           });
 
-          try {
-            setStatusMessage(`Synthesizing frame ${index + 1}...`);
-            const url = await generateSingleSceneImage(scene);
-            
-            setScenes(prev => {
-              const next = [...prev];
-              next[index] = { 
-                ...next[index], 
-                imageUrl: url, 
-                status: { ...next[index].status, visual: 'done' } 
-              };
-              return next;
-            });
-            
-            setImages(prev => {
-              const next = [...prev];
-              next[index] = url;
-              return next;
-            });
-
-            completedCount++;
-            setProgress(Math.floor((completedCount / totalScenes) * 100));
-          } catch (err) {
-            console.error(`Failed to generate frame ${index}:`, err);
-            setScenes(prev => {
-              const next = [...prev];
-              next[index] = { ...next[index], status: { ...next[index].status, visual: 'error' } };
-              return next;
-            });
-          }
-        }));
-        
-        if (i + CONCURRENCY < totalScenes) {
-          await new Promise(r => setTimeout(r, 800));
+          completedCount++;
+          setProgress(Math.floor((completedCount / totalScenes) * 100));
+        } catch (err) {
+          console.error(`Failed to generate Reel frame ${index}:`, err);
+          setScenes(prev => {
+            const next = [...prev];
+            next[index] = { ...next[index], status: { ...next[index].status, visual: 'error' } };
+            return next;
+          });
         }
-      }
+      });
+
+      await Promise.all(visualTasks);
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
       
-      // AUTO-RECONCILIATION: Ironclad verification for all reel frames
-      setStatusMessage('Optimizing visual sequence...');
-      let missingCount = 1;
-      let passes = 0;
+      const stillMissing = scenes.some(s => s.status.visual !== 'done' || !s.imageUrl);
       
-      while (missingCount > 0 && passes < 3) { 
-        passes++;
-        
-        // Safe state peek
-        const currentScenes: any[] = await new Promise(resolve => {
-          setScenes(s => {
-            resolve([...s]);
-            return s;
-          });
-        });
-
-        const failedIndices = currentScenes.map((s, i) => {
-          const hasImage = s.imageUrl && (s.imageUrl.startsWith('http') || s.imageUrl.length > 1000);
-          return (s.status.visual !== 'done' || !hasImage) ? i : -1;
-        }).filter(i => i !== -1);
-        
-        missingCount = failedIndices.length;
-
-        if (missingCount > 0) {
-          setStatusMessage(`Syncing Pass ${passes}: Healing ${missingCount} frames...`);
-          for (const idx of failedIndices) {
-            try {
-              const url = await generateSingleSceneImage(currentScenes[idx]);
-              setScenes(prev => {
-                const next = [...prev];
-                next[idx] = { ...next[idx], imageUrl: url, status: { ...next[idx].status, visual: 'done' } };
-                return next;
-              });
-              setImages(prev => {
-                const next = [...prev];
-                next[idx] = url;
-                return next;
-              });
-            } catch (e) {
-              console.error("Reel Self-heal failed for idx", idx, e);
-            }
-            await new Promise(r => setTimeout(r, 1000));
-          }
-        }
-      }
-
-      setStatusMessage('Storyboard Perfected!');
       setProgress(100);
+      setStatusMessage(stillMissing ? 'Storyboard ready with some warnings.' : 'Storyboard Perfected!');
+      
+      // Stop loading immediately
+      setIsLoading(false);
 
       // Auto-transition
       setTimeout(() => {
         setActiveStep('video');
-        setIsLoading(false);
-      }, 1500);
+      }, 800);
     } catch (err: any) {
       setError(err.message);
+      setIsLoading(false);
     } finally {
       setIsLoading(false);
       setTimeout(() => setStatusMessage(''), 3000);

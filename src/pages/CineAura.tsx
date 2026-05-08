@@ -198,7 +198,8 @@ export default function CineAura({ profile }: { profile: any }) {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.STORY_GENERATION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
-      const frameCount = Math.ceil((length * 60) / 10); 
+      const totalSeconds = length * 60;
+      const frameCount = Math.max(1, Math.ceil(totalSeconds / 10)); 
       
       const prompt = `ACT AS A MASTER CINEMATIC STORYTELLER.
       Write a ${length} minute COHESIVE NARRATIVE STORY about: ${topic}. 
@@ -321,7 +322,8 @@ export default function CineAura({ profile }: { profile: any }) {
   const handleConfirmScript = () => {
     // Re-parse the full script into scenes using lookbehind to preserve punctuation
     const narrativeSegments = fullScript.split(/(?<=[.!?])\s+|(?<=\n)\n*/).filter(s => s.trim().length > 0);
-    const targetFrames = Math.ceil((length * 60) / 10);
+    const totalSeconds = length * 60;
+    const targetFrames = Math.max(1, Math.ceil(totalSeconds / 10));
     const segmentSize = Math.max(1, Math.floor(narrativeSegments.length / targetFrames));
     
     setScenes(prev => {
@@ -433,121 +435,73 @@ export default function CineAura({ profile }: { profile: any }) {
     setIsLoading(true);
     setProgress(0);
     setError("");
+    setStatusMessage('Directing Cinematic Photography...');
+    
     try {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.IMAGE_GENERATION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
-      setStatusMessage('Directing Cinematic Photography...');
-      
       const total = scenes.length;
       let completed = 0;
 
-      // Parallel generation for speed (Concurrency: 2 for stability)
-      const CONCURRENCY = 2; 
-      for (let i = 0; i < total; i += CONCURRENCY) {
-        const batch = scenes.slice(i, i + CONCURRENCY);
-        const batchIndices = Array.from({ length: batch.length }, (_, k) => i + k);
-        
-        setStatusMessage(`Directing Batch ${Math.floor(i / CONCURRENCY) + 1} of ${Math.ceil(total / CONCURRENCY)}...`);
-        
-        await Promise.all(batch.map(async (scene, batchIdx) => {
-          const idx = batchIndices[batchIdx];
+      // Fully parallel generation for maximum speed as requested
+      const visualTasks = scenes.map(async (scene, idx) => {
+        if (scene.imageUrl && scene.status.visual === 'done') {
+          completed++;
+          return;
+        }
 
-          if (scene.imageUrl && scene.status.visual === 'done') {
-            completed++;
-            return;
-          }
+        setScenes(prev => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'processing' } };
+          return next;
+        });
 
+        try {
+          const url = await generateSingleSceneImage(scene.visualPrompt, idx);
+          
           setScenes(prev => {
             const next = [...prev];
-            next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'processing' } };
+            next[idx] = { 
+              ...next[idx], 
+              imageUrl: url, 
+              status: { ...next[idx].status, visual: 'done' } 
+            };
             return next;
           });
-
-          try {
-            // Enhanced individual scene retry with exponential backoff inside the component loop too
-            const url = await generateSingleSceneImage(scene.visualPrompt, idx);
-            
-            setScenes(prev => {
-              const next = [...prev];
-              next[idx] = { 
-                ...next[idx], 
-                imageUrl: url, 
-                status: { ...next[idx].status, visual: 'done' } 
-              };
-              return next;
-            });
-            completed++;
-            setProgress(Math.floor((completed / total) * 100));
-          } catch (err) {
-            console.error(`Visual gen failed for scene ${idx}`, err);
-            setScenes(prev => {
-              const next = [...prev];
-              next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'error' } };
-              return next;
-            });
-          }
-        }));
-        
-        // Safety delay between batches
-        if (i + CONCURRENCY < total) {
-          await new Promise(r => setTimeout(r, 1500));
+          completed++;
+          setProgress(Math.floor((completed / total) * 100));
+        } catch (err) {
+          console.error(`Visual gen failed for scene ${idx}`, err);
+          setScenes(prev => {
+            const next = [...prev];
+            next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'error' } };
+            return next;
+          });
         }
-      }
+      });
+
+      await Promise.all(visualTasks);
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
 
-      // FINAL RECONCILIATION: Ironclad verify all frames
-      setStatusMessage('Verifying visual integrity...');
-      let missingCount = 1;
-      let passes = 0;
+      // Final check for overall success
+      const stillMissing = scenes.some(s => s.status.visual !== 'done' || !s.imageUrl);
       
-      while (missingCount > 0 && passes < 3) { 
-        passes++;
-        
-        // Safe state peek to check current scene status
-        const currentScenes: Scene[] = await new Promise(resolve => {
-          setScenes(s => {
-            resolve([...s]);
-            return s;
-          });
-        });
-
-        const failedIndices = currentScenes.map((s, i) => {
-          const hasImage = s.imageUrl && (s.imageUrl.startsWith('http') || s.imageUrl.length > 1000);
-          return (s.status.visual !== 'done' || !hasImage) ? i : -1;
-        }).filter(i => i !== -1);
-        
-        missingCount = failedIndices.length;
-
-        if (missingCount > 0) {
-          setStatusMessage(`Auto-Rescue Pass ${passes}: Healing ${missingCount} frames...`);
-          for (const idx of failedIndices) {
-            try {
-              const url = await generateSingleSceneImage(currentScenes[idx].visualPrompt, idx);
-              setScenes(prev => {
-                const next = [...prev];
-                next[idx] = { ...next[idx], imageUrl: url, status: { ...next[idx].status, visual: 'done' } };
-                return next;
-              });
-            } catch (e) {
-              console.error("Self-heal failed for idx", idx, e);
-            }
-            await new Promise(r => setTimeout(r, 1000));
-          }
-        }
-      }
-
-      setStatusMessage('Cinematography Complete!');
       setProgress(100);
+      setStatusMessage(stillMissing ? 'Storyboard ready with some warnings.' : 'Cinematography Complete!');
+      
+      // Stop loading immediately
+      setIsLoading(false);
       
       // Auto-transition to next step
       setTimeout(() => {
         setActiveStep('video');
-        setIsLoading(false);
-      }, 1500);
+      }, 800);
+
     } catch (err: any) {
       setError(err.message);
+      setIsLoading(false);
     } finally {
       setIsLoading(false);
       setTimeout(() => setStatusMessage(''), 3000);
