@@ -199,6 +199,7 @@ export default function CineAura({ profile }: { profile: any }) {
       if (!hasCredits) throw new Error('Insufficient credits.');
 
       const totalSeconds = length * 60;
+      // Calculate target frames: 1 frame per 10 seconds of planned duration
       const frameCount = Math.max(1, Math.ceil(totalSeconds / 10)); 
       
       const prompt = `ACT AS A MASTER CINEMATIC STORYTELLER.
@@ -218,7 +219,7 @@ export default function CineAura({ profile }: { profile: any }) {
       [NARRATIVE]
       Long ago... (Continuous flow)
       [/NARRATIVE]
-
+      
       [VISUALS]
       1. [VISUAL] ...
       2. [VISUAL] ...
@@ -283,27 +284,21 @@ export default function CineAura({ profile }: { profile: any }) {
 
   const processGeneratedContent = (fullNarration: string, visualPrompts: string[], frameCount: number) => {
     // Distribute narrative into segments for the timeline
-    const narrativeSegments = fullNarration.split(/(?<=[.!?])\s+|(?<=\n)\n*/).filter(s => s.trim().length > 0);
-    const targetFrames = frameCount;
-    // Ensure we don't exceed what LLM gave us but aim for frameCount
-    const finalVisuals = [...visualPrompts];
-    while (finalVisuals.length < targetFrames) {
-      finalVisuals.push(finalVisuals[finalVisuals.length - 1] || "Cinematic masterpiece");
-    }
+    // We split purely by targetFrames to ensure equal distribution across the 10s intervals
+    const totalChars = fullNarration.length;
+    const charsPerSegment = Math.max(1, Math.floor(totalChars / frameCount));
     
-    const segmentSize = Math.max(1, Math.floor(narrativeSegments.length / targetFrames));
-    
-    const parsedScenes: Scene[] = Array.from({ length: targetFrames }).map((_, index) => {
-      const start = index * segmentSize;
-      let end = (index + 1) * segmentSize;
+    const parsedScenes: Scene[] = Array.from({ length: frameCount }).map((_, index) => {
+      const start = index * charsPerSegment;
+      let end = (index + 1) * charsPerSegment;
       // Last scene takes all remaining text
-      if (index === targetFrames - 1) end = narrativeSegments.length;
+      if (index === frameCount - 1) end = totalChars;
       
-      const segmentText = narrativeSegments.slice(start, end).join(" ").trim();
+      const segmentText = fullNarration.substring(start, end).trim();
       
       return {
         id: Math.random().toString(36).substr(2, 9),
-        visualPrompt: finalVisuals[index] || "Cinematic landscape",
+        visualPrompt: visualPrompts[index] || "Cinematic masterpiece",
         narration: segmentText || (index === 0 ? fullNarration : "..."),
         imageUrl: '',
         status: {
@@ -320,26 +315,31 @@ export default function CineAura({ profile }: { profile: any }) {
   };
 
   const handleConfirmScript = () => {
-    // Re-parse the full script into scenes using lookbehind to preserve punctuation
-    const narrativeSegments = fullScript.split(/(?<=[.!?])\s+|(?<=\n)\n*/).filter(s => s.trim().length > 0);
-    const totalSeconds = length * 60;
+    // Determine the number of frames based on the 10-second rule
+    // We estimate duration: ~12 chars per second (average narration speed)
+    const estimatedSeconds = fullScript.length / 12;
+    // We use the greater of planned length or estimated length to ensure enough frames
+    const totalSeconds = Math.max(length * 60, estimatedSeconds);
     const targetFrames = Math.max(1, Math.ceil(totalSeconds / 10));
-    const segmentSize = Math.max(1, Math.floor(narrativeSegments.length / targetFrames));
+    
+    console.log(`Auurio: Partitioning story into ${targetFrames} frames (based on ~${Math.round(totalSeconds)}s)`);
+
+    const totalChars = fullScript.length;
+    const charsPerSegment = Math.max(1, Math.floor(totalChars / targetFrames));
     
     setScenes(prev => {
-      // Preserve existing visual prompts if possible
       const newScenes: Scene[] = Array.from({ length: targetFrames }).map((_, index) => {
-        const start = index * segmentSize;
-        let end = (index + 1) * segmentSize;
-        if (index === targetFrames - 1) end = narrativeSegments.length;
+        const start = index * charsPerSegment;
+        let end = (index + 1) * charsPerSegment;
+        if (index === targetFrames - 1) end = totalChars;
         
-        const segmentText = narrativeSegments.slice(start, end).join(" ").trim();
+        const segmentText = fullScript.substring(start, end).trim();
         
         const existingScene = prev[index];
         return {
           id: existingScene?.id || Math.random().toString(36).substr(2, 9),
-          visualPrompt: existingScene?.visualPrompt || "Cinematic masterpiece",
-          narration: segmentText || (index === 0 ? fullScript : "..."),
+          visualPrompt: existingScene?.visualPrompt || "Cinematic high-detail production still",
+          narration: segmentText || "...",
           imageUrl: existingScene?.imageUrl || '',
           status: {
             story: 'done',
@@ -382,19 +382,28 @@ export default function CineAura({ profile }: { profile: any }) {
 
       // Determine durations for timeline sync
       const audio = new Audio(res.url);
-      const totalDuration = await new Promise<number>((resolve) => {
+      const audioLoadPromise = new Promise<number>((resolve) => {
         if (audio.duration && !isNaN(audio.duration)) resolve(audio.duration);
         audio.onloadedmetadata = () => resolve(audio.duration);
-        setTimeout(() => resolve(scenes.length * 7), 3000); // Shorter fail-safe
+        setTimeout(() => resolve(fullScript.length * 0.1), 5000); 
       });
 
-      const totalChars = fullScript.length || 1;
-      setScenes(prev => prev.map(s => ({
-        ...s,
-        audioUrl: 'MULTI_SCENE_AUDIO',
-        audioDuration: (s.narration.length / totalChars) * totalDuration,
-        status: { ...s.status, voice: 'done' }
-      })));
+      const totalDuration = await audioLoadPromise;
+
+      console.log(`Auurio: Total Audio Duration: ${totalDuration}s`);
+      
+      // We force equal duration distribution to satisfy "1 frame per 10 seconds" as requested
+      // This ensures all generated frames are used over the total timeline duration.
+      const frameDuration = totalDuration / scenes.length;
+      
+      setScenes(prev => {
+        return prev.map((s, idx) => ({
+          ...s,
+          audioUrl: 'MULTI_SCENE_AUDIO',
+          audioDuration: frameDuration, 
+          status: { ...s.status, voice: 'done' }
+        }));
+      });
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION, 'VOICE_SYNTHESIS');
       setProgress(100);
@@ -444,60 +453,124 @@ export default function CineAura({ profile }: { profile: any }) {
       const total = scenes.length;
       let completed = 0;
 
-      // Fully parallel generation for maximum speed as requested
-      const visualTasks = scenes.map(async (scene, idx) => {
-        if (scene.imageUrl && scene.status.visual === 'done') {
-          completed++;
-          return;
-        }
+      // Parallel generation for speed with stable batching (Concurrency: 5 for high-speed/stability balance)
+      const CONCURRENCY = 5; 
+      for (let i = 0; i < total; i += CONCURRENCY) {
+        const batch = scenes.slice(i, i + CONCURRENCY);
+        const batchIndices = Array.from({ length: batch.length }, (_, k) => i + k);
+        
+        setStatusMessage(`CineGen: Capturing Batch ${Math.floor(i / CONCURRENCY) + 1} of ${Math.ceil(total / CONCURRENCY)}...`);
+        
+        await Promise.all(batch.map(async (scene, batchIdx) => {
+          const idx = batchIndices[batchIdx];
 
-        setScenes(prev => {
-          const next = [...prev];
-          next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'processing' } };
-          return next;
-        });
+          if (scene.imageUrl && scene.status.visual === 'done') {
+            completed++;
+            return;
+          }
 
-        try {
-          const url = await generateSingleSceneImage(scene.visualPrompt, idx);
-          
           setScenes(prev => {
             const next = [...prev];
-            next[idx] = { 
-              ...next[idx], 
-              imageUrl: url, 
-              status: { ...next[idx].status, visual: 'done' } 
-            };
+            next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'processing' } };
             return next;
           });
-          completed++;
-          setProgress(Math.floor((completed / total) * 100));
-        } catch (err) {
-          console.error(`Visual gen failed for scene ${idx}`, err);
-          setScenes(prev => {
-            const next = [...prev];
-            next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'error' } };
-            return next;
-          });
-        }
-      });
 
-      await Promise.all(visualTasks);
+          try {
+            const url = await generateSingleSceneImage(scene.visualPrompt, idx);
+            
+            setScenes(prev => {
+              const next = [...prev];
+              next[idx] = { 
+                ...next[idx], 
+                imageUrl: url, 
+                status: { ...next[idx].status, visual: 'done' } 
+              };
+              return next;
+            });
+            completed++;
+            setProgress(Math.floor((completed / total) * 100));
+          } catch (err) {
+            console.error(`Visual gen failed for scene ${idx}`, err);
+            setScenes(prev => {
+              const next = [...prev];
+              next[idx] = { ...next[idx], status: { ...next[idx].status, visual: 'error' } };
+              return next;
+            });
+          }
+        }));
+        
+        if (i + CONCURRENCY < total) {
+          await new Promise(r => setTimeout(r, 600)); 
+        }
+      }
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
 
-      // Final check for overall success
-      const stillMissing = scenes.some(s => s.status.visual !== 'done' || !s.imageUrl);
+      // MANDATORY RESCUE PASS: Identity and heal any missing frames before finishing
+      setStatusMessage('Final visual sync & verification...');
+      let rescuePasses = 0;
+      const MAX_RESCUE_PASSES = 3;
       
-      setProgress(100);
-      setStatusMessage(stillMissing ? 'Storyboard ready with some warnings.' : 'Cinematography Complete!');
-      
-      // Stop loading immediately
-      setIsLoading(false);
-      
-      // Auto-transition to next step
-      setTimeout(() => {
-        setActiveStep('video');
-      }, 800);
+      while (rescuePasses < MAX_RESCUE_PASSES) {
+        // Check for missing images
+        // Use a functional update to get current state accurately
+        let failedIndices: number[] = [];
+        await new Promise<void>(resolve => {
+          setScenes(current => {
+            failedIndices = current
+              .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
+              .filter(idx => idx !== -1);
+            resolve();
+            return current;
+          });
+        });
+          
+        if (failedIndices.length === 0) break;
+        
+        rescuePasses++;
+        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} frames...`);
+        
+        // Use simpler serial generation for rescue pass to ensure 100% success
+        for (const idx of failedIndices) {
+          try {
+            // Get current prompt for this failed scene
+            let scenePrompt = "";
+            await new Promise<void>(resolve => {
+               setScenes(s => { scenePrompt = s[idx].visualPrompt; resolve(); return s; });
+            });
+
+            const url = await generateSingleSceneImage(scenePrompt, idx);
+            setScenes(prev => {
+              const next = [...prev];
+              next[idx] = { ...next[idx], imageUrl: url, status: { ...next[idx].status, visual: 'done' } };
+              return next;
+            });
+          } catch (e) {
+            console.error(`Rescue attempt ${rescuePasses} failed for ${idx}`, e);
+          }
+        }
+      }
+
+      // Final Check - if any stills missing, block transition
+      let finalMissing = false;
+      setScenes(current => {
+        finalMissing = current.some(s => !s.imageUrl);
+        return current;
+      });
+
+      if (finalMissing) {
+        setStatusMessage('Heads up: Some frames failed to render. Please regenerate manually.');
+        setIsLoading(false);
+        // User must manually fix or retry
+      } else {
+        setStatusMessage('Cinematography Mastered!');
+        setProgress(100);
+        setIsLoading(false);
+        // Transition ONLY if perfect
+        setTimeout(() => {
+          setActiveStep('video');
+        }, 1500);
+      }
 
     } catch (err: any) {
       setError(err.message);
@@ -578,22 +651,31 @@ export default function CineAura({ profile }: { profile: any }) {
   };
 
   const generateSingleSceneImage = async (prompt: string, index: number) => {
-    const maxAttempts = 2; // Reduced because aiService handles model rotation
+    const maxAttempts = 2; 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         console.log(`Auurio: Scene ${index + 1} master attempt ${attempt}`);
-        const url = await aiService.generateImage(prompt, { 
-          useFlash: true, // Force high speed
+        
+        // Add a hard timeout to prevent Promise.all from hanging
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error("Timeout")), 90000)
+        );
+
+        const genPromise = aiService.generateImage(prompt, { 
+          useFlash: true, 
           width: 1792,
           height: 1024,
           style: theme 
         });
+
+        const url = await Promise.race([genPromise, timeoutPromise]);
+        
         if (url && (url.startsWith('http') || url.length > 1000)) return url;
         throw new Error("Invalid image result");
       } catch (err) {
         console.warn(`Auurio: Scene ${index + 1} attempt ${attempt} failed:`, err);
         if (attempt === maxAttempts) break;
-        await new Promise(r => setTimeout(r, 1000)); // Short wait for secondary master attempt
+        await new Promise(r => setTimeout(r, 1000)); 
       }
     }
     return aiService.generateImageUrl(prompt, 1792, 1024);

@@ -74,7 +74,26 @@ class AIService {
       try {
         onProgress?.(`Contacting AI Engine (${modelName})...`);
         
-        // Northern Lights constraint: Use @google/genai in frontend
+        // Strategy: Try Server-side proxy first to avoid exposing keys in frontend
+        try {
+          const proxyRes = await fetch("/api/generate-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, model: modelName })
+          });
+          
+          if (proxyRes.ok) {
+            const data = await proxyRes.json();
+            if (data.text) {
+              onProgress?.("Script received via secure proxy.");
+              return data.text;
+            }
+          }
+        } catch (proxyErr) {
+          console.warn("Auurio: Server proxy failed, trying direct fallback.", proxyErr);
+        }
+
+        // Direct fallback (works in AI Studio and development)
         const response = await this.client.models.generateContent({
           model: modelName,
           contents: prompt
@@ -151,10 +170,14 @@ class AIService {
         updates.priority = 0; // Working
         updates.status = 'active';
         updates.lastError = null;
+        updates.coolDownUntil = 0; // Clear cooldown on success
       } else if (status === 'quota' || (errorMessage && (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota') || errorMessage.toLowerCase().includes('exhausted')))) {
         updates.priority = 1; // Quota Full
-        updates.coolDownUntil = Date.now() + (5 * 60 * 1000); // reduced to 5 min cooldown for quota
+        updates.status = 'active'; // Still active, just cooled down
+        updates.coolDownUntil = Date.now() + (3 * 60 * 1000); // Reduced to 3 min cooldown for faster recovery
         updates.lastError = 'Quota Exceeded (429)';
+        // Force refresh cache on next getPooledClients
+        this.pooledClientsCache = null;
       } else if (status === 'error') {
         // If it's an API key invalid error, mark as Priority 2
         const isInvalid = errorMessage?.toLowerCase().includes('api key') || errorMessage?.toLowerCase().includes('invalid');
@@ -504,9 +527,9 @@ class AIService {
 
         // Use optimized TTS model names for the Unified SDK
         const audioModels = [
-          "gemini-3.1-flash-tts-preview",
-          "gemini-3-flash-preview",
-          "gemini-flash-latest"
+          "gemini-2.0-flash", // Fast & Stable
+          "gemini-1.5-flash",
+          "gemini-3-flash-preview"
         ];
         
         for (const entry of clientsToTry) {
@@ -665,8 +688,33 @@ class AIService {
       try {
         console.log(`Auurio: Rendering Scene -> ${currentModel}`);
         
+        // Strategy: Try Server-side proxy first for high-end engines
         if (currentModel.includes("imagen")) {
-          // Standard Imagen via @google/genai
+          try {
+            const proxyRes = await fetch("/api/generate-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                prompt: currentPrompt, 
+                model: currentModel,
+                config: { 
+                  numberOfImages: 1,
+                  aspectRatio: width === height ? "1:1" : (width > height ? "16:9" : "9:16")
+                }
+              })
+            });
+            
+            if (proxyRes.ok) {
+              const data = await proxyRes.json();
+              if (data.image) return `data:image/png;base64,${data.image}`;
+            }
+          } catch (proxyErr) {
+            console.warn(`Auurio: Server proxy for ${currentModel} failed. Trying direct.`, proxyErr);
+          }
+        }
+
+        if (currentModel.includes("imagen")) {
+          // Standard Imagen via @google/genai (Direct)
           const response = await this.client.models.generateImages({
             model: currentModel,
             prompt: currentPrompt,
@@ -681,7 +729,7 @@ class AIService {
             return `data:image/png;base64,${base64}`;
           }
         } else {
-          // Nano Banana series
+          // Nano Banana series (Direct)
           const response = await this.client.models.generateContent({
             model: currentModel,
             contents: {

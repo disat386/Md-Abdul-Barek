@@ -75,13 +75,23 @@ export async function exportToVideo(
     totalDuration = current;
   } else {
     totalDuration = audioBuffers[0]?.duration || 10;
-    const totalCharCount = scenes.reduce((sum, s) => sum + s.narration.length, 0);
-    let current = 0;
-    scenes.forEach(scene => {
-      sceneStartTimes.push(current);
-      const sceneWeight = scene.narration.length / totalCharCount || (1 / scenes.length);
-      current += sceneWeight * totalDuration;
-    });
+    const anyHasDuration = (scenes as any[]).some(s => s.audioDuration > 0);
+    
+    if (anyHasDuration) {
+      let current = 0;
+      scenes.forEach(scene => {
+        sceneStartTimes.push(current);
+        current += (scene as any).audioDuration || (totalDuration / scenes.length);
+      });
+    } else {
+      const totalCharCount = scenes.reduce((sum, s) => sum + s.narration.length, 0);
+      let current = 0;
+      scenes.forEach(scene => {
+        sceneStartTimes.push(current);
+        const sceneWeight = scene.narration.length / totalCharCount || (1 / scenes.length);
+        current += sceneWeight * totalDuration;
+      });
+    }
   }
 
   onProgress?.({ progress: 10, status: 'Initializing cinematic renderer...' });

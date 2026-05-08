@@ -256,19 +256,21 @@ export default function ReelAura({ profile }: { profile: any }) {
   };
 
   const processGeneratedContent = (fullNarration: string, visualPrompts: string[], frameCount: number) => {
-    // Split into fast-paced segments for the reel timeline
-    const narrativeSegments = fullNarration.split(/[.!?]\n+|[.!?]\s+/);
+    // Split into segments for the reel timeline using robust character distribution
+    const totalChars = fullNarration.length;
     const targetFrames = Math.max(visualPrompts.length, frameCount);
-    const segmentSize = Math.ceil(narrativeSegments.length / targetFrames);
+    const charsPerSegment = Math.max(1, Math.floor(totalChars / targetFrames));
     
     const parsedScenes: Scene[] = Array.from({ length: targetFrames }).map((_, index) => {
-      const start = index * segmentSize;
-      const end = Math.min(start + segmentSize, narrativeSegments.length);
-      const segmentText = narrativeSegments.slice(start, end).join(". ") + (end < narrativeSegments.length ? "." : "");
+      const start = index * charsPerSegment;
+      let end = (index + 1) * charsPerSegment;
+      if (index === targetFrames - 1) end = totalChars;
+      
+      const segmentText = fullNarration.substring(start, end).trim();
       
       return {
         id: Math.random().toString(36).substr(2, 9),
-        visualPrompt: visualPrompts[index] || visualPrompts[visualPrompts.length - 1] || "Vertical high impact cinematic",
+        visualPrompt: visualPrompts[index] || "Vertical high impact cinematic",
         narration: segmentText || "Captivating moment...",
         imageUrl: '',
         status: {
@@ -277,7 +279,7 @@ export default function ReelAura({ profile }: { profile: any }) {
           visual: 'pending'
         }
       };
-    }).filter(s => s.narration.length > 2);
+    });
 
     setScenes(parsedScenes);
     setImages(parsedScenes.map(s => s.imageUrl));
@@ -285,24 +287,29 @@ export default function ReelAura({ profile }: { profile: any }) {
   };
 
   const handleConfirmScript = () => {
-    // Re-parse the full script into scenes using lookbehind to preserve punctuation
-    const narrativeSegments = fullScript.split(/(?<=[.!?])\s+|(?<=\n)\n*/);
-    const totalSeconds = isPartStory ? numParts * partLength : length * 60;
-    const targetFrames = Math.max(8, Math.ceil(totalSeconds / 7));
-    const segmentSize = Math.ceil(narrativeSegments.length / targetFrames);
+    // Determine number of frames: 1 frame per 7.5 seconds for high-paced Reels
+    const estimatedSeconds = fullScript.length / 12;
+    const totalSeconds = isPartStory ? (numParts * partLength) : Math.max(length * 60, estimatedSeconds);
+    const targetFrames = Math.max(8, Math.ceil(totalSeconds / 7.5));
+    
+    console.log(`Auurio: Partitioning Reel into ${targetFrames} frames (based on ~${Math.round(totalSeconds)}s)`);
+
+    const totalChars = fullScript.length;
+    const charsPerSegment = Math.max(1, Math.floor(totalChars / targetFrames));
     
     setScenes(prev => {
-      // Preserve existing visual prompts if possible
       const newScenes: Scene[] = Array.from({ length: targetFrames }).map((_, index) => {
-        const start = index * segmentSize;
-        const end = Math.min(start + segmentSize, narrativeSegments.length);
-        const segmentText = narrativeSegments.slice(start, end).join(". ") + (end < narrativeSegments.length ? "." : "");
+        const start = index * charsPerSegment;
+        let end = (index + 1) * charsPerSegment;
+        if (index === targetFrames - 1) end = totalChars;
+        
+        const segmentText = fullScript.substring(start, end).trim();
         
         const existingScene = prev[index];
         return {
           id: existingScene?.id || Math.random().toString(36).substr(2, 9),
-          visualPrompt: existingScene?.visualPrompt || "Vertical high impact cinematic",
-          narration: segmentText || "Captivating moment...",
+          visualPrompt: existingScene?.visualPrompt || "Vertical high impact cinematic motion still",
+          narration: segmentText || "...",
           imageUrl: existingScene?.imageUrl || '',
           status: {
             story: 'done',
@@ -310,7 +317,7 @@ export default function ReelAura({ profile }: { profile: any }) {
             visual: 'pending'
           }
         };
-      }).filter(s => s.narration.length > 2);
+      });
       return newScenes;
     });
 
@@ -345,17 +352,19 @@ export default function ReelAura({ profile }: { profile: any }) {
 
       // Sync durations
       const audio = new Audio(res.url);
-      const totalDuration = await new Promise<number>((resolve) => {
+      const audioLoadPromise = new Promise<number>((resolve) => {
         if (audio.duration && !isNaN(audio.duration)) resolve(audio.duration);
         audio.onloadedmetadata = () => resolve(audio.duration);
-        setTimeout(() => resolve(scenes.length * 6), 3000);
+        setTimeout(() => resolve(fullScript.length * 0.1), 5000);
       });
 
-      const totalChars = fullScript.length || 1;
+      const totalDuration = await audioLoadPromise;
+      const frameDuration = totalDuration / scenes.length;
+
       setScenes(prev => prev.map(s => ({
         ...s,
         audioUrl: 'MULTI_SCENE_AUDIO',
-        audioDuration: (s.narration.length / totalChars) * totalDuration,
+        audioDuration: frameDuration, // Equal duration distribution for reliability
         status: { ...s.status, voice: 'done' }
       })));
 
@@ -406,66 +415,129 @@ export default function ReelAura({ profile }: { profile: any }) {
       const totalScenes = scenes.length;
       let completedCount = 0;
 
-      // Parallel generation for maximum speed as requested
-      const visualTasks = scenes.map(async (scene, index) => {
-        if (scene.imageUrl && scene.status.visual === 'done') {
-          completedCount++;
-          return;
-        }
+      // Controlled parallelism (Concurrency 5) for Reels to ensure high-speed but stable production
+      const CONCURRENCY = 5;
+      for (let i = 0; i < totalScenes; i += CONCURRENCY) {
+        const batch = scenes.slice(i, i + CONCURRENCY);
+        const batchIndices = Array.from({ length: batch.length }, (_, k) => i + k);
 
-        setScenes(prev => {
-          const next = [...prev];
-          next[index] = { ...next[index], status: { ...next[index].status, visual: 'processing' } };
-          return next;
-        });
-
-        try {
-          const url = await generateSingleSceneImage(scene);
+        await Promise.all(batch.map(async (scene, batchIdx) => {
+          const index = batchIndices[batchIdx];
           
+          if (scene.imageUrl && scene.status.visual === 'done') {
+            completedCount++;
+            return;
+          }
+
           setScenes(prev => {
             const next = [...prev];
-            next[index] = { 
-              ...next[index], 
-              imageUrl: url, 
-              status: { ...next[index].status, visual: 'done' } 
-            };
-            return next;
-          });
-          
-          setImages(prev => {
-            const next = [...prev];
-            next[index] = url;
+            next[index] = { ...next[index], status: { ...next[index].status, visual: 'processing' } };
             return next;
           });
 
-          completedCount++;
-          setProgress(Math.floor((completedCount / totalScenes) * 100));
-        } catch (err) {
-          console.error(`Failed to generate Reel frame ${index}:`, err);
-          setScenes(prev => {
-            const next = [...prev];
-            next[index] = { ...next[index], status: { ...next[index].status, visual: 'error' } };
-            return next;
-          });
+          try {
+            const url = await generateSingleSceneImage(scene);
+            
+            setScenes(prev => {
+              const next = [...prev];
+              next[index] = { 
+                ...next[index], 
+                imageUrl: url, 
+                status: { ...next[index].status, visual: 'done' } 
+              };
+              return next;
+            });
+            
+            setImages(prev => {
+              const next = [...prev];
+              next[index] = url;
+              return next;
+            });
+
+            completedCount++;
+            setProgress(Math.floor((completedCount / totalScenes) * 100));
+          } catch (err) {
+            console.error(`Failed to generate Reel frame ${index}:`, err);
+            setScenes(prev => {
+              const next = [...prev];
+              next[index] = { ...next[index], status: { ...next[index].status, visual: 'error' } };
+              return next;
+            });
+          }
+        }));
+        
+        if (i + CONCURRENCY < totalScenes) {
+          await new Promise(r => setTimeout(r, 600));
         }
-      });
-
-      await Promise.all(visualTasks);
+      }
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
       
-      const stillMissing = scenes.some(s => s.status.visual !== 'done' || !s.imageUrl);
+      // AUTO-RECONCILIATION: Mandatory Rescue Pass for Reels
+      setStatusMessage('Optimizing visual sequence & healing frames...');
+      let rescuePasses = 0;
+      const MAX_RESCUE_PASSES = 3;
       
-      setProgress(100);
-      setStatusMessage(stillMissing ? 'Storyboard ready with some warnings.' : 'Storyboard Perfected!');
-      
-      // Stop loading immediately
-      setIsLoading(false);
+      while (rescuePasses < MAX_RESCUE_PASSES) {
+        let failedIndices: number[] = [];
+        await new Promise<void>(resolve => {
+          setScenes(current => {
+            failedIndices = current
+              .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
+              .filter(idx => idx !== -1);
+            resolve();
+            return current;
+          });
+        });
+          
+        if (failedIndices.length === 0) break;
+        
+        rescuePasses++;
+        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} items...`);
+        
+        for (const idx of failedIndices) {
+          try {
+            let sceneData: any = null;
+            await new Promise<void>(resolve => {
+               setScenes(s => { sceneData = s[idx]; resolve(); return s; });
+            });
 
-      // Auto-transition
-      setTimeout(() => {
-        setActiveStep('video');
-      }, 800);
+            const url = await generateSingleSceneImage(sceneData);
+            setScenes(prev => {
+              const next = [...prev];
+              next[idx] = { ...next[idx], imageUrl: url, status: { ...next[idx].status, visual: 'done' } };
+              return next;
+            });
+            setImages(prev => {
+              const next = [...prev];
+              next[idx] = url;
+              return next;
+            });
+          } catch (e) {
+            console.error(`Reel rescue ${rescuePasses} failed for ${idx}`, e);
+          }
+        }
+      }
+
+      // Final status and transition blocker
+      let finalMissing = false;
+      setScenes(current => {
+        finalMissing = current.some(s => !s.imageUrl);
+        return current;
+      });
+
+      if (finalMissing) {
+        setStatusMessage('Storyboard ready with some warnings. Please fix failed frames.');
+        setIsLoading(false);
+      } else {
+        setStatusMessage('Storyboard Perfected!');
+        setProgress(100);
+        setIsLoading(false);
+        // Transition ONLY if perfect
+        setTimeout(() => {
+          setActiveStep('video');
+        }, 1500);
+      }
     } catch (err: any) {
       setError(err.message);
       setIsLoading(false);
@@ -525,17 +597,26 @@ export default function ReelAura({ profile }: { profile: any }) {
     const prompt = `Vertical Reel: ${visualPart}. Aesthetic: ${styleModifiers}`;
     const negativePrompt = "landscape, horizontal, black bars, frame, border, low resolution, blurry, distorted features.";
     
-    const maxAttempts = 2; // Reduced as aiService handles fallback chain
+    const maxAttempts = 2; 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         console.log(`Auurio: Reel Frame master attempt ${attempt}`);
-        let url = await aiService.generateImage(prompt, { 
+        
+        // Add a hard timeout to prevent Promise.all from hanging
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error("Timeout")), 90000)
+        );
+
+        const genPromise = aiService.generateImage(prompt, { 
           width: 1024, 
           height: 1792, 
           negativePrompt, 
           useFlash: true,
           style: theme 
         });
+
+        const url = await Promise.race([genPromise, timeoutPromise]);
+
         if (url && (url.startsWith('http') || url.length > 1000)) return url;
         throw new Error("Invalid image");
       } catch (e) {

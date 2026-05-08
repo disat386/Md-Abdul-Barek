@@ -3,7 +3,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,12 +15,56 @@ async function startServer() {
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
 
-  // Initialize Gemini
-  // Node SDK proxy is currently disabled in favor of direct frontend integration
+  // Initialize Gemini for Server-side Proxy
+  const genAI = process.env.GEMINI_API_KEY 
+    ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+    : null;
 
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", message: "Auurio stable backend is active" });
+  });
+
+  // Proxy for Story Generation
+  app.post("/api/generate-text", async (req, res) => {
+    if (!genAI) return res.status(500).json({ error: "Gemini API key not configured on server" });
+    
+    const { prompt, model } = req.body;
+    try {
+      const response = await genAI.models.generateContent({
+        model: model || "gemini-2.0-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
+      });
+      res.json({ text: response.text });
+    } catch (err: any) {
+      console.error("Server API Error (Text):", err.message);
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  // Proxy for Image Generation (Imagen 3)
+  app.post("/api/generate-image", async (req, res) => {
+    if (!genAI) return res.status(500).json({ error: "Gemini API key not configured on server" });
+    
+    const { prompt, model, config } = req.body;
+    try {
+      const response = await genAI.models.generateImages({
+        model: model || "imagen-3.0-generate-001",
+        prompt,
+        config: config || { numberOfImages: 1 }
+      });
+      
+      const bytes = response?.generatedImages?.[0]?.image?.imageBytes;
+      if (bytes) {
+        const base64 = typeof bytes === 'string' ? bytes : Buffer.from(bytes as Uint8Array).toString('base64');
+        res.json({ image: base64 });
+      } else {
+        res.status(404).json({ error: "No image data returned" });
+      }
+    } catch (err: any) {
+      console.error("Server API Error (Image):", err.message);
+      res.status(err.status || 500).json({ error: err.message });
+    }
   });
 
   // Vite middleware for development
