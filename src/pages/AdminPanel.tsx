@@ -194,10 +194,8 @@ export default function AdminPanel({ profile }: { profile: any }) {
 
   // Vertex Config State
   const [vConfig, setVConfig] = useState({
-    projectId: '',
-    region: 'us-central1',
-    modelId: 'gemini-1.5-flash',
-    credentialsJson: ''
+    useFirebaseVertex: false,
+    modelId: 'gemini-1.5-flash'
   });
   const [isSavingV, setIsSavingV] = useState(false);
   const [testStatus, setTestStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
@@ -439,10 +437,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
     setIsSavingV(true);
     setTestStatus({ type: 'idle' });
     try {
-      // Basic validation: Check if JSON is actually JSON
-      if (vConfig.credentialsJson) {
-        JSON.parse(vConfig.credentialsJson);
-      }
       await setDoc(doc(db, 'settings', 'vertex_config'), vConfig);
       alert('Vertex AI configuration updated successfully.');
     } catch (err: any) {
@@ -452,38 +446,22 @@ export default function AdminPanel({ profile }: { profile: any }) {
     }
   };
 
-  const handleCredentialsChange = (json: string) => {
-    let updatedConfig = { ...vConfig, credentialsJson: json };
-    try {
-      const parsed = JSON.parse(json);
-      if (parsed.project_id && !vConfig.projectId) {
-        updatedConfig.projectId = parsed.project_id;
-      }
-    } catch (e) {
-      // Not valid JSON yet, that's fine
-    }
-    setVConfig(updatedConfig);
-  };
-
   const handleTestConnection = async () => {
     setIsSavingV(true);
     setTestStatus({ type: 'idle' });
     try {
-      // In a static architecture, we test connectivity via the primary Gemini SDK
-      const { GoogleGenAI } = await import('@google/genai');
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+      const { vertexAI } = await import('../firebase');
+      const { getGenerativeModel } = await import('firebase/ai');
       
-      const genAI = new GoogleGenAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = getGenerativeModel(vertexAI, { model: vConfig.modelId || "gemini-1.5-flash" });
       const result = await model.generateContent("Ping");
       const response = await result.response;
       const text = response.text();
       
       if (text) {
-        setTestStatus({ type: 'success', message: 'Connection Successful! Google AI SDK is active.' });
+        setTestStatus({ type: 'success', message: 'Connection Successful! Vertex for Firebase is active.' });
       } else {
-        throw new Error("Received empty response from Gemini API.");
+        throw new Error("Received empty response from Vertex AI.");
       }
     } catch (err: any) {
       setTestStatus({ type: 'error', message: err.message });
@@ -527,6 +505,7 @@ export default function AdminPanel({ profile }: { profile: any }) {
           { id: 'payments', label: 'Payments', icon: CreditCard },
           { id: 'coupons', label: 'Coupons', icon: Ticket },
           { id: 'keys', label: 'API Pool', icon: Key },
+          { id: 'vertex', label: 'Vertex AI', icon: Database },
           { id: 'settings', label: 'Settings', icon: SettingsIcon },
         ].map((tab) => (
           <button 
@@ -1028,6 +1007,114 @@ export default function AdminPanel({ profile }: { profile: any }) {
                       </div>
                     );
                   })}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'vertex' && (
+              <motion.div
+                key="vertex"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-zinc-900 border border-white/5 rounded-3xl p-8 space-y-8"
+              >
+                <div className="flex items-center justify-between border-b border-white/5 pb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-orange-500/10 rounded-2xl">
+                      <Database className="w-6 h-6 text-orange-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold">Vertex AI (Firebase Managed)</h3>
+                      <p className="text-xs text-zinc-500 font-medium">Use your Google Cloud credits securely via Firebase SDK.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={handleTestConnection}
+                      disabled={isSavingV}
+                      className="flex items-center gap-2 bg-blue-500/10 text-blue-500 font-black uppercase tracking-tighter px-6 py-2.5 rounded-xl hover:bg-blue-500/20 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      <RotateCw className={cn("w-4 h-4", isSavingV && "animate-spin")} />
+                      Test Connection
+                    </button>
+                    <button 
+                      onClick={handleSaveVertex}
+                      disabled={isSavingV}
+                      className="flex items-center gap-2 bg-orange-500 text-black font-black uppercase tracking-tighter px-6 py-2.5 rounded-xl hover:bg-orange-400 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {isSavingV ? <RotateCw className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+
+                {testStatus.type !== 'idle' && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className={cn(
+                      "p-4 rounded-2xl border flex items-center gap-3",
+                      testStatus.type === 'success' ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-red-500/10 border-red-500/20 text-red-500"
+                    )}
+                  >
+                    {testStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                    <p className="text-xs font-bold uppercase tracking-tight flex-1">{testStatus.message}</p>
+                  </motion.div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4 bg-black/40 p-6 rounded-2xl border border-white/5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Enable Vertex Engine</label>
+                      <button 
+                        onClick={() => setVConfig({...vConfig, useFirebaseVertex: !vConfig.useFirebaseVertex})}
+                        className={cn(
+                          "w-12 h-6 rounded-full transition-all relative",
+                          vConfig.useFirebaseVertex ? "bg-orange-500" : "bg-zinc-800"
+                        )}
+                      >
+                        <div className={cn(
+                          "absolute top-1 w-4 h-4 rounded-full bg-white transition-all",
+                          vConfig.useFirebaseVertex ? "right-1" : "left-1"
+                        )} />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-600 font-medium leading-relaxed italic">
+                      When enabled, Story Generation and Image Generation will use Vertex AI via your linked Google Cloud Project credits instead of the standard Gemini API.
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Primary Vertex Model</label>
+                    <input
+                      type="text"
+                      value={vConfig.modelId}
+                      onChange={(e) => setVConfig({...vConfig, modelId: e.target.value})}
+                      placeholder="e.g. gemini-2.0-flash"
+                      className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:border-orange-500 outline-none transition-all"
+                    />
+                    <div className="flex flex-wrap gap-2 px-1">
+                      {['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-002', 'gemini-2.0-flash'].map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setVConfig({...vConfig, modelId: m})}
+                          className="text-[9px] font-bold bg-white/5 hover:bg-white/10 text-zinc-400 py-1 px-2 rounded-md transition-colors"
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-orange-500/5 border border-orange-500/10 rounded-2xl p-6">
+                  <h4 className="text-xs font-bold text-orange-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" /> Why did this change?
+                  </h4>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed font-bold uppercase tracking-tight">
+                    We moved from a local Node.js proxy to the <span className="text-white">Vertex AI for Firebase SDK</span>. This allows you to host the app on static platforms (like Hostinger) while still securely using your Google Cloud credits. No service account key is needed in the client-side code anymore — authentication is managed through your Firebase project permissions.
+                  </p>
                 </div>
               </motion.div>
             )}
