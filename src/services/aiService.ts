@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { db, vertexAI } from "../firebase";
 import { doc, getDoc, collection, getDocs, setDoc } from "firebase/firestore";
 import { getGenerativeModel } from "firebase/ai";
@@ -14,9 +14,9 @@ class AIService {
   private isInitialized = false;
   private imgenModel = "imagen-3.0-generate-001";
   private imgenFastModel = "imagen-3.0-fast-generate-001";
-  private flashImageModel = "gemini-3.0-flash"; 
-  private flash2ImageModel = "gemini-2.0-flash";
-  private proImageModel = "gemini-3.0-pro";
+  private flashImageModel = "gemini-2.5-flash-image"; 
+  private flash2ImageModel = "gemini-3.1-flash-image-preview";
+  private proImageModel = "gemini-3-pro-image-preview";
 
   private sharedAudioCtx: AudioContext | null = null;
   private pooledClientsCache: any[] | null = null;
@@ -31,11 +31,10 @@ class AIService {
       
       if (snap.exists()) {
         this.config = snap.data() as VertexConfig;
-        console.log("Auurio: Loaded Vertex Engine configuration.");
       }
       
-      const apiKey = process.env.GEMINI_API_KEY;
-      this.client = new GoogleGenAI({ apiKey: apiKey || '' });
+      // Northern Lights handles GEMINI_API_KEY injection
+      this.client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
     } catch (err) {
       console.warn("Auurio: Initialization error. Falling back.", err);
       this.client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
@@ -64,60 +63,36 @@ class AIService {
     await this.initialize();
 
     const models = [
-      modelOverride || this.config?.modelId || "gemini-2.0-flash-001",
-      "gemini-1.5-flash-002",
-      "gemini-2.0-flash"
+      modelOverride || this.config?.modelId || "gemini-3-flash-preview",
+      "gemini-3-pro-preview",
+      "gemini-flash-latest"
     ];
 
     let lastError: any = null;
 
     for (const modelName of models) {
       try {
-        onProgress?.(`Contacting stable backend (${modelName})...`);
+        onProgress?.(`Contacting AI Engine (${modelName})...`);
         
-        // Use our new stable server-side proxy
-        const response = await fetch("/api/ai/generate-text", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt,
-            modelId: modelName
-          })
+        // Northern Lights constraint: Use @google/genai in frontend
+        const response = await this.client.models.generateContent({
+          model: modelName,
+          contents: prompt
         });
 
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.error || "Backend failed");
-        }
-
-        const data = await response.json();
-        
-        if (data.text) {
+        if (response.text) {
           onProgress?.("Script received and processed.");
-          return data.text;
+          return response.text;
         }
         
       } catch (err: any) {
         lastError = err;
         const msg = err.message || "";
-        console.warn(`Auurio: Stable backend attempt ${modelName} failed:`, msg);
-        
-        // Fallback to client-side GoogleGenAI if backend fails (unlikely in this env)
-        try {
-          onProgress?.(`Trying secondary client-side path (${modelName})...`);
-          const model = this.client.getGenerativeModel({ model: modelName });
-          const result = await model.generateContent(prompt);
-          const res = await result.response;
-          return res.text();
-        } catch (innerErr) {
-          console.error("Auurio: Both backend and client pathways failed.", innerErr);
-        }
-
+        console.warn(`Auurio: Attempt ${modelName} failed:`, msg);
         continue;
       }
     }
 
-    // Only show OVER CAPACITY if it was actually a quota issue
     const finalMsg = lastError?.message?.includes("quota") 
       ? "Auurio AI Services are currently over capacity. Please try again in 5 minutes."
       : (lastError?.message || "Auurio AI Services encountered an unexpected error.");
@@ -527,10 +502,11 @@ class AIService {
           throw new Error("No active API keys available in the pool for narration.");
         }
 
+        // Use optimized TTS model names for the Unified SDK
         const audioModels = [
-          "gemini-2.0-flash-001",
-          "gemini-1.5-pro-002",
-          "gemini-2.0-flash"
+          "gemini-3.1-flash-tts-preview",
+          "gemini-3-flash-preview",
+          "gemini-flash-latest"
         ];
         
         for (const entry of clientsToTry) {
@@ -549,33 +525,35 @@ class AIService {
               
               console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id || 'PRIMARY'} on ${modelId}...`);
               
-              const timeoutMs = 60000; // Increased to 60s for high-quality audio generation
-              const genPromise = entry.client.models.generateContent({
+              const timeoutMs = 60000;
+              const response = await entry.client.models.generateContent({
                 model: modelId,
                 contents: [{ parts: [{ text: narrationPrompt }] }],
                 config: {
-                  responseModalities: ["AUDIO"],
+                  responseModalities: [Modality.AUDIO],
                   speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } }
                 }
               });
-
-              const timeoutPromise = new Promise<never>((_, reject) => 
-                setTimeout(() => reject(new Error("Timeout")), timeoutMs)
-              );
-
-              const response = await Promise.race([genPromise, timeoutPromise]);
               
-              // Robust response parsing
-              const parts = response.candidates?.[0]?.content?.parts || [];
-              const audioPart = parts.find((p: any) => p.inlineData?.data || (p.mimeType && p.mimeType.includes('audio')));
-              const data = audioPart?.inlineData?.data || response.data;
-              
-              if (data) {
-                const mimeType = audioPart?.inlineData?.mimeType || audioPart?.mimeType || 'audio/pcm';
-                return await this.processAudioResponse(data, mimeType, entry.id, current, total, modelId, entry.isPooled);
+              // Extract audio data from response parts
+              let audioData = null;
+              let mimeType = 'audio/pcm';
+
+              if (response.candidates?.[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
+                  if (part.inlineData?.data) {
+                    audioData = part.inlineData.data;
+                    mimeType = part.inlineData.mimeType || 'audio/pcm';
+                    break;
+                  }
+                }
               }
               
-              console.warn(`Auurio: ${modelId} gave null audio. Response was:`, JSON.stringify(response).substring(0, 200));
+              if (audioData) {
+                return await this.processAudioResponse(audioData, mimeType, entry.id, current, total, modelId, entry.isPooled);
+              }
+              
+              console.warn(`Auurio: ${modelId} gave no audio part.`);
             } catch (err: any) {
               const errMsg = (err.message || "").toLowerCase();
               
@@ -671,8 +649,8 @@ class AIService {
     const framePrompt = `${styleModifiers} ${cinematicKeywords} ${sanitizedPrompt}.`;
 
     const models = [
-      "gemini-2.0-flash-001",
-      "gemini-1.5-flash-002",
+      "gemini-2.5-flash-image",
+      "gemini-3.1-flash-image-preview",
       "imagen-3.0-generate-001"
     ];
 
@@ -685,37 +663,40 @@ class AIService {
       const currentModel = models[modelIndex];
       
       try {
-        console.log(`Auurio: Stable Backend Rendering Scene -> ${currentModel}`);
+        console.log(`Auurio: Rendering Scene -> ${currentModel}`);
         
-        const response = await fetch("/api/ai/generate-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        if (currentModel.includes("imagen")) {
+          // Standard Imagen via @google/genai
+          const response = await this.client.models.generateImages({
+            model: currentModel,
             prompt: currentPrompt,
-            modelId: currentModel
-          })
-        });
+            config: {
+              numberOfImages: 1,
+              aspectRatio: width === height ? "1:1" : (width > height ? "16:9" : "9:16")
+            }
+          });
+          const bytes = response?.generatedImages?.[0]?.image?.imageBytes;
+          if (bytes) {
+            const base64 = typeof bytes === 'string' ? bytes : this.uint8ArrayToBase64(bytes as Uint8Array);
+            return `data:image/png;base64,${base64}`;
+          }
+        } else {
+          // Nano Banana series
+          const response = await this.client.models.generateContent({
+            model: currentModel,
+            contents: {
+              parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }]
+            }
+          });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.image) return data.image;
+          for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+              return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+            }
+          }
         }
 
-        // Fallback to client-side multimodal
-        const model = this.client.getGenerativeModel({ model: currentModel });
-        const result = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }] }],
-          generationConfig: { responseModalities: ["IMAGE"] as any }
-        });
-
-        const parts = result.response.candidates?.[0]?.content?.parts;
-        const imagePart = parts?.find((p: any) => p.inlineData);
-        
-        if (imagePart?.inlineData?.data) {
-          return `data:${imagePart.inlineData.mimeType || "image/png"};base64,${imagePart.inlineData.data}`;
-        }
-
-        throw new Error("No image data");
+        throw new Error("No image data returned");
 
       } catch (err: any) {
         const errMsg = err.message || "Unknown error";

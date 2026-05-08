@@ -16,53 +16,11 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
 
   // Initialize Gemini
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+  // Node SDK proxy is currently disabled in favor of direct frontend integration
 
   // API Routes
-  app.post("/api/ai/generate-text", async (req, res) => {
-    try {
-      const { prompt, modelId, config } = req.body;
-      const model = genAI.getGenerativeModel({ 
-        model: modelId || "gemini-2.0-flash",
-        generationConfig: config
-      });
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      res.json({ text: response.text() });
-    } catch (error: any) {
-      console.error("Server AI Error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.post("/api/ai/generate-image", async (req, res) => {
-    try {
-      const { prompt, modelId } = req.body;
-      // In Node SDK, imagen is usually a separate flow or requires specific version
-      // We will use the model.generateContent with responseModalities if available, 
-      // or just handle standard flash generation for now.
-      const model = genAI.getGenerativeModel({ model: modelId || "gemini-2.0-flash-001" });
-      
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece: ${prompt}` }] }],
-        generationConfig: { responseModalities: ["IMAGE"] as any }
-      });
-      
-      const parts = result.response.candidates?.[0]?.content?.parts;
-      const imagePart = parts?.find((p: any) => p.inlineData);
-      
-      if (imagePart?.inlineData?.data) {
-        res.json({ 
-          image: `data:${imagePart.inlineData.mimeType || "image/png"};base64,${imagePart.inlineData.data}` 
-        });
-      } else {
-        res.status(400).json({ error: "No image data returned from AI" });
-      }
-    } catch (error: any) {
-      console.error("Server AI Error:", error);
-      res.status(500).json({ error: error.message });
-    }
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", message: "Auurio stable backend is active" });
   });
 
   // Vite middleware for development

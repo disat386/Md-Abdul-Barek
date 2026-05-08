@@ -451,7 +451,7 @@ export default function AdminPanel({ profile }: { profile: any }) {
     setTestStatus({ type: 'idle' });
     try {
       const { aiService } = await import('../services/aiService');
-      const response = await aiService.generateText("Ping", vConfig.modelId || "gemini-2.0-flash-001");
+      const response = await aiService.generateText("Ping", vConfig.modelId || "gemini-3-flash-preview");
       
       if (response) {
         setTestStatus({ type: 'success', message: 'Connection Successful! Stable backend is active.' });
@@ -1090,11 +1090,16 @@ export default function AdminPanel({ profile }: { profile: any }) {
                       className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:border-orange-500 outline-none transition-all"
                     />
                     <div className="flex flex-wrap gap-2 px-1">
-                      {['gemini-2.0-flash-001', 'gemini-1.5-flash-002', 'gemini-2.0-flash', 'gemini-1.5-pro-002'].map(m => (
+                      {['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-pro-image-preview'].map(m => (
                         <button
                           key={m}
                           onClick={() => setVConfig({...vConfig, modelId: m})}
-                          className="text-[9px] font-bold bg-white/5 hover:bg-white/10 text-zinc-400 py-1 px-2 rounded-md transition-colors"
+                          className={cn(
+                            "text-[9px] font-bold py-1 px-2 rounded-md transition-colors",
+                            vConfig.modelId === m 
+                              ? "bg-orange-500 text-white" 
+                              : "bg-white/5 hover:bg-white/10 text-zinc-400"
+                          )}
                         >
                           {m}
                         </button>
