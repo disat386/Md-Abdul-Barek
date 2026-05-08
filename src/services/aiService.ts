@@ -14,9 +14,9 @@ class AIService {
   private isInitialized = false;
   private imgenModel = "imagen-3.0-generate-001";
   private imgenFastModel = "imagen-3.0-fast-generate-001";
-  private flashImageModel = "gemini-1.5-flash-002"; 
-  private flash2ImageModel = "gemini-2.0-flash-exp";
-  private proImageModel = "gemini-1.5-pro-002";
+  private flashImageModel = "gemini-3.0-flash"; 
+  private flash2ImageModel = "gemini-2.0-flash";
+  private proImageModel = "gemini-3.0-pro";
 
   private sharedAudioCtx: AudioContext | null = null;
   private pooledClientsCache: any[] | null = null;
@@ -64,39 +64,55 @@ class AIService {
     await this.initialize();
 
     const models = [
-      modelOverride || this.config?.modelId || "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemini-2.0-flash",
+      modelOverride || this.config?.modelId || "gemini-2.0-flash-001",
       "gemini-1.5-flash-002",
-      "gemini-2.0-flash-lite-preview-02-05",
-      "gemini-1.5-pro-002"
+      "gemini-2.0-flash"
     ];
 
     let lastError: any = null;
 
     for (const modelName of models) {
       try {
-        onProgress?.(`Trying engine ${modelName}...`);
-        const model = await this.getModel(modelName);
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        onProgress?.(`Contacting stable backend (${modelName})...`);
         
-        if (text) {
+        // Use our new stable server-side proxy
+        const response = await fetch("/api/ai/generate-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            modelId: modelName
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error || "Backend failed");
+        }
+
+        const data = await response.json();
+        
+        if (data.text) {
           onProgress?.("Script received and processed.");
-          return text;
+          return data.text;
         }
         
       } catch (err: any) {
         lastError = err;
         const msg = err.message || "";
-        console.warn(`Auurio: Model ${modelName} reached quota or error:`, msg);
+        console.warn(`Auurio: Stable backend attempt ${modelName} failed:`, msg);
         
-        // If it's a configuration error (API not enabled), throw it immediately instead of falling back to "Over Capacity"
-        if (msg.includes("not enabled") || msg.includes("Firebase AI API") || msg.includes("permission") || msg.includes("NOT_FOUND")) {
-          throw new Error(`Auurio Error: ${msg}. Please ensure Vertex AI API is enabled in your Google Cloud Console and that you have initialized the 'AI Logic' service in your Firebase Console (Build -> AI Logic).`);
+        // Fallback to client-side GoogleGenAI if backend fails (unlikely in this env)
+        try {
+          onProgress?.(`Trying secondary client-side path (${modelName})...`);
+          const model = this.client.getGenerativeModel({ model: modelName });
+          const result = await model.generateContent(prompt);
+          const res = await result.response;
+          return res.text();
+        } catch (innerErr) {
+          console.error("Auurio: Both backend and client pathways failed.", innerErr);
         }
-        
+
         continue;
       }
     }
@@ -512,10 +528,9 @@ class AIService {
         }
 
         const audioModels = [
-          "gemini-1.5-flash",
-          "gemini-2.0-flash",
-          "gemini-1.5-flash-002",
-          "gemini-1.5-pro-002"
+          "gemini-2.0-flash-001",
+          "gemini-1.5-pro-002",
+          "gemini-2.0-flash"
         ];
         
         for (const entry of clientsToTry) {
@@ -645,9 +660,7 @@ class AIService {
       prompt = "Cinematic atmospheric professional photography, masterpiece lighting";
     }
 
-    // Proactive Safety Pass
     const sanitizedPrompt = this.cleanPromptForSafety(prompt);
-    
     const cinematicKeywords = "Professional cinematic photography, masterpiece, high-end 8k resolution, detailed texture, atmospheric lighting, epic composition, production still.";
     
     let styleModifiers = "";
@@ -656,13 +669,10 @@ class AIService {
     }
 
     const framePrompt = `${styleModifiers} ${cinematicKeywords} ${sanitizedPrompt}.`;
-    const negativePrompt = options.negativePrompt || "text, watermark, logo, blurry, low quality, distorted face, bad anatomy";
 
     const models = [
-      "gemini-1.5-flash",
-      "gemini-2.0-flash",
+      "gemini-2.0-flash-001",
       "gemini-1.5-flash-002",
-      "gemini-2.0-flash-lite-preview-02-05",
       "imagen-3.0-generate-001"
     ];
 
@@ -675,112 +685,49 @@ class AIService {
       const currentModel = models[modelIndex];
       
       try {
-        console.log(`Auurio: Rendering Scene -> ${currentModel} (Engine ${modelIndex + 1}/${models.length})`);
+        console.log(`Auurio: Stable Backend Rendering Scene -> ${currentModel}`);
         
-        // Timeout handling: increased for better stability
-        const timeoutMs = currentModel.includes("imagen") ? 55000 : 40000;
+        const response = await fetch("/api/ai/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: currentPrompt,
+            modelId: currentModel
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.image) return data.image;
+        }
+
+        // Fallback to client-side multimodal
+        const model = this.client.getGenerativeModel({ model: currentModel });
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }] }],
+          generationConfig: { responseModalities: ["IMAGE"] as any }
+        });
+
+        const parts = result.response.candidates?.[0]?.content?.parts;
+        const imagePart = parts?.find((p: any) => p.inlineData);
         
-        const genPromise = (async () => {
-          const model = await this.getModel(currentModel);
+        if (imagePart?.inlineData?.data) {
+          return `data:${imagePart.inlineData.mimeType || "image/png"};base64,${imagePart.inlineData.data}`;
+        }
 
-          if (currentModel.includes("imagen")) {
-            // Vertex AI for Firebase doesn't strictly have generateImages in the same way, 
-            // usually it's handled via generateContent with IMAGE output or a specific image model.
-            // But for now, we'll try to support it if it's the standard client.
-            if (!(model as any).generateImages && !(model as any).generateContent) {
-                console.warn(`Auurio: ${currentModel} requires specific SDK capability.`);
-                throw new Error("UNSUPPORTED_OR_FORBIDDEN");
-            }
-
-            try {
-              if (this.config?.useFirebaseVertex) {
-                // Multimodal 2.0+ pattern for Firebase Vertex
-                const result = await model.generateContent({
-                  contents: [{ role: 'user', parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }] }],
-                  generationConfig: { responseModalities: ["IMAGE"] }
-                });
-                const parts = result.response.candidates?.[0]?.content?.parts;
-                const imagePart = parts?.find((p: any) => p.inlineData);
-                if (imagePart?.inlineData?.data) {
-                  return `data:${imagePart.inlineData.mimeType || "image/png"};base64,${imagePart.inlineData.data}`;
-                }
-              } else {
-                // @google/genai pattern
-                const response = await (model as any).generateImages?.({
-                  prompt: currentPrompt,
-                  numberOfImages: 1,
-                  aspectRatio: width === height ? "1:1" : (width > height ? "16:9" : "9:16"),
-                });
-                const bytes = response?.generatedImages?.[0]?.image?.imageBytes;
-                if (bytes) {
-                  const base64 = typeof bytes === 'string' ? bytes : this.uint8ArrayToBase64(bytes as Uint8Array);
-                  return `data:image/png;base64,${base64}`;
-                }
-              }
-            } catch (err: any) {
-              console.warn(`Auurio: ${currentModel} Imagen error: ${err.message}`);
-              throw err;
-            }
-          } else {
-            // Gemini multimodal generation
-            try {
-              const result = await model.generateContent({
-                contents: [{ role: 'user', parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }] }],
-                generationConfig: { responseModalities: ["IMAGE"] }
-              });
-
-              const parts = result.response.candidates?.[0]?.content?.parts;
-              const imagePart = parts?.find((p: any) => p.inlineData);
-              
-              if (imagePart?.inlineData?.data) {
-                console.log(`Auurio: Visual SUCCESS -> ${currentModel} (Multimodal)`);
-                return `data:${imagePart.inlineData.mimeType || "image/png"};base64,${imagePart.inlineData.data}`;
-              } else {
-                const textPart = parts?.find((p: any) => p.text);
-                if (textPart?.text) {
-                  if (textPart.text.toLowerCase().includes("safety") || textPart.text.toLowerCase().includes("policy")) {
-                    throw new Error("SAFETY_BLOCK");
-                  }
-                }
-                throw new Error("EMPTY_PAYLOAD");
-              }
-            } catch (innerErr: any) {
-              const msg = innerErr.message?.toLowerCase() || "";
-              if (msg.includes('400') || msg.includes('modality') || msg.includes('argument') || msg.includes('403') || msg.includes('404')) {
-                 throw new Error("UNSUPPORTED_OR_FORBIDDEN", { cause: innerErr });
-              }
-              if (msg.includes('safety') || msg.includes('blocked')) {
-                throw new Error("SAFETY_BLOCK", { cause: innerErr });
-              }
-              throw innerErr;
-            }
-          }
-          
-          throw new Error("EMPTY_PAYLOAD");
-        })();
-
-        // Race with timeout
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout")), timeoutMs)
-        );
-
-        return await Promise.race([genPromise, timeoutPromise]);
+        throw new Error("No image data");
 
       } catch (err: any) {
         const errMsg = err.message || "Unknown error";
-        console.warn(`Auurio: Visual engine ${currentModel} error: ${errMsg}`);
+        console.warn(`Auurio: Image engine ${currentModel} error: ${errMsg}`);
         
-        // Handle Safety Triggers
         if (errMsg.toLowerCase().includes("safety") || errMsg.toLowerCase().includes("blocked")) {
-           console.warn("Auurio: Content filter triggered. Generalizing prompt for next attempt...");
            const generalPrompt = "A cinematic atmospheric professional masterpiece shot with dramatic lighting, artistic rendering, high detail";
            return attempt(modelIndex + 1, generalPrompt);
         }
 
-        // Fast rotate on fatal errors
         return attempt(modelIndex + 1, currentPrompt);
       }
-
     };
 
     try {
@@ -789,7 +736,6 @@ class AIService {
       console.warn("Auurio: All primary AI image engines failed eventually. Using CDN fallback.", err.message);
       return this.generateImageUrl(framePrompt, width, height);
     }
-
   }
 
   public generateImageUrl(prompt: string, width = 1024, height = 1024) {

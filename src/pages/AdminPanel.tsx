@@ -195,7 +195,7 @@ export default function AdminPanel({ profile }: { profile: any }) {
   // Vertex Config State
   const [vConfig, setVConfig] = useState({
     useFirebaseVertex: false,
-    modelId: 'gemini-1.5-flash'
+    modelId: 'gemini-2.0-flash-001'
   });
   const [isSavingV, setIsSavingV] = useState(false);
   const [testStatus, setTestStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
@@ -450,18 +450,13 @@ export default function AdminPanel({ profile }: { profile: any }) {
     setIsSavingV(true);
     setTestStatus({ type: 'idle' });
     try {
-      const { vertexAI } = await import('../firebase');
-      const { getGenerativeModel } = await import('firebase/ai');
+      const { aiService } = await import('../services/aiService');
+      const response = await aiService.generateText("Ping", vConfig.modelId || "gemini-2.0-flash-001");
       
-      const model = getGenerativeModel(vertexAI, { model: vConfig.modelId || "gemini-1.5-flash" });
-      const result = await model.generateContent("Ping");
-      const response = await result.response;
-      const text = response.text();
-      
-      if (text) {
-        setTestStatus({ type: 'success', message: 'Connection Successful! Vertex for Firebase is active.' });
+      if (response) {
+        setTestStatus({ type: 'success', message: 'Connection Successful! Stable backend is active.' });
       } else {
-        throw new Error("Received empty response from Vertex AI.");
+        throw new Error("Received empty response from AI services.");
       }
     } catch (err: any) {
       setTestStatus({ type: 'error', message: err.message });
@@ -1095,7 +1090,7 @@ export default function AdminPanel({ profile }: { profile: any }) {
                       className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:border-orange-500 outline-none transition-all"
                     />
                     <div className="flex flex-wrap gap-2 px-1">
-                      {['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-002', 'gemini-2.0-flash'].map(m => (
+                      {['gemini-2.0-flash-001', 'gemini-1.5-flash-002', 'gemini-2.0-flash', 'gemini-1.5-pro-002'].map(m => (
                         <button
                           key={m}
                           onClick={() => setVConfig({...vConfig, modelId: m})}
