@@ -104,7 +104,7 @@ class AIService {
         // Direct fallback (ONLY works if in AI Studio or if key is provided in Vite env)
         const browserKey = process.env.GEMINI_API_KEY; // Northern Lights constraint
         if (!browserKey && !window.location.hostname.includes("run.app")) {
-           throw new Error("AI Engine requires GEMINI_API_KEY. Please verify your Hostinger/GitHub environment variables.");
+           throw new Error("AI Engine: GEMINI_API_KEY is missing. Action: Create a '.env' file in your Hostinger root folder and add 'GEMINI_API_KEY=your_key'.");
         }
 
         const response = await this.client.models.generateContent({
@@ -733,7 +733,7 @@ class AIService {
         if (currentModel.includes("imagen")) {
           // Direct fallback check
           if (!process.env.GEMINI_API_KEY && !window.location.hostname.includes("run.app")) {
-            throw new Error("Imagen requires GEMINI_API_KEY in server environment.");
+            throw new Error("Imagen requires GEMINI_API_KEY. Action: Add it to your server's '.env' file.");
           }
           
           // Standard Imagen via @google/genai (Direct)

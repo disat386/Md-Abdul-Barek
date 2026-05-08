@@ -14,7 +14,9 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Hostinger and other cloud providers often provide the PORT via env variable
+  const PORT = process.env.PORT || 3000;
+  const isProduction = process.env.NODE_ENV === "production";
 
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
