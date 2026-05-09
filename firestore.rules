@@ -58,9 +58,10 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
     }
 
-    // API Keys: Strictly Admin Only
+    // API Keys: Authenticated users can read (for services), only Super Admin can write.
     match /api_keys/{keyId} {
-      allow read, write: if isSuperAdmin();
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
     }
   }
 }

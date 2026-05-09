@@ -7,10 +7,12 @@ interface VertexConfig {
   useFirebaseVertex?: boolean;
   modelId?: string;
   primaryApiKey?: string;
+  secondaryAudioKey?: string;
 }
 
 class AIService {
   private client: any = null;
+  private audioFallbackClient: any = null;
   private config: VertexConfig | null = null;
   private isInitialized = false;
   private imgenModel = "imagen-3.0-generate-001";
@@ -36,6 +38,10 @@ class AIService {
       
       const apiKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey || '';
       this.client = new GoogleGenAI({ apiKey });
+
+      if (this.config?.secondaryAudioKey) {
+        this.audioFallbackClient = new GoogleGenAI({ apiKey: this.config.secondaryAudioKey });
+      }
     } catch (err) {
       console.warn("Auurio: Initialization error. Falling back.", err);
       const apiKey = process.env.GEMINI_API_KEY || '';
@@ -151,6 +157,12 @@ class AIService {
         priority: best.priority || 0
       }));
 
+      // Shuffle the pool to distribute load evenly across keys
+      for (let i = processedPool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [processedPool[i], processedPool[j]] = [processedPool[j], processedPool[i]];
+      }
+
       // If everything is empty, fallback to primary if ready
       if (processedPool.length === 0 && Date.now() > this.primaryExhaustedUntil) {
         return []; 
@@ -178,10 +190,8 @@ class AIService {
       } else if (status === 'quota' || (errorMessage && (errorMessage.includes('429') || errorMessage.toLowerCase().includes('quota') || errorMessage.toLowerCase().includes('exhausted')))) {
         updates.priority = 1; // Quota Full
         updates.status = 'active'; // Still active, just cooled down
-        updates.coolDownUntil = Date.now() + (3 * 60 * 1000); // Reduced to 3 min cooldown for faster recovery
+        updates.coolDownUntil = Date.now() + (10 * 60 * 1000); // 10 min cooldown for better recovery
         updates.lastError = 'Quota Exceeded (429)';
-        // Force refresh cache on next getPooledClients
-        this.pooledClientsCache = null;
       } else if (status === 'error') {
         // If it's an API key invalid error, mark as Priority 2
         const isInvalid = errorMessage?.toLowerCase().includes('api key') || errorMessage?.toLowerCase().includes('invalid');
@@ -272,7 +282,7 @@ class AIService {
 
     // Concurrency control for parallel audio generation to prevent API timeouts
     const results: any[] = [];
-    const concurrencyLimit = 2; // More conservative for combined pool/primary usage
+    const concurrencyLimit = 1; // Strictly serial for free pool keys to stay within RPM
     for (let i = 0; i < chunks.length; i += concurrencyLimit) {
       const batch = chunks.slice(i, i + concurrencyLimit);
       const batchResults = await Promise.all(batch.map(async (chunk, batchIdx) => {
@@ -522,18 +532,31 @@ class AIService {
         const pooledClients = await this.getPooledClients();
         const clientsToTry: { id: string | null, client: any, isPooled: boolean }[] = [];
         
-        // RULE: Audio generation MUST ONLY use the API Pool
+        // Use pooled clients first to save quota
         pooledClients.forEach(p => clientsToTry.push({ id: p.id, client: p.client, isPooled: true }));
-        
-        if (clientsToTry.length === 0) {
-          throw new Error("No active API keys available in the pool for narration.");
+
+        // Add primary/rescue client as fallback for stability
+        if (this.client && (process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY || this.config?.primaryApiKey)) {
+          if (Date.now() > this.primaryExhaustedUntil) {
+            clientsToTry.push({ id: 'primary-vertex', client: this.client, isPooled: false });
+          }
         }
 
-        // Use optimized TTS model names for the Unified SDK
+        // LAST RESORT: Dedicated Secondary Audio Key (Fall-back)
+        if (this.config?.secondaryAudioKey) {
+          if (!this.audioFallbackClient) {
+            this.audioFallbackClient = new GoogleGenAI({ apiKey: this.config.secondaryAudioKey });
+          }
+          clientsToTry.push({ id: 'secondary-audio-fallback', client: this.audioFallbackClient, isPooled: false });
+        }
+        
+        if (clientsToTry.length === 0) {
+          throw new Error("Narration Engine: All keys (including Rescue Key) are exhausted or cooling down.");
+        }
+
+        // Use ONLY one reliable model per key to avoid exhausting RPM
         const audioModels = [
-          "gemini-2.0-flash", // Fast & Stable
-          "gemini-1.5-flash",
-          "gemini-3-flash-preview"
+          "gemini-1.5-flash"
         ];
         
         for (const entry of clientsToTry) {
@@ -588,7 +611,6 @@ class AIService {
                 console.warn(`Auurio: Key ${entry.id || 'primary'} Quota on ${modelId}. Rotating...`);
                 if (entry.isPooled && entry.id) {
                   await this.reportKeyStatus(entry.id, 'quota', err.message);
-                  this.pooledClientsCache = null;
                 } else if (!entry.isPooled) {
                   this.primaryExhaustedUntil = Date.now() + (2 * 60 * 1000); 
                 }

@@ -208,7 +208,8 @@ export default function AdminPanel({ profile }: { profile: any }) {
   const [vConfig, setVConfig] = useState({
     useFirebaseVertex: false,
     modelId: 'gemini-2.0-flash-001',
-    primaryApiKey: ''
+    primaryApiKey: '',
+    secondaryAudioKey: ''
   });
   const [isSavingV, setIsSavingV] = useState(false);
   const [testStatus, setTestStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
@@ -947,6 +948,37 @@ export default function AdminPanel({ profile }: { profile: any }) {
                   >
                     {isAdding ? <RotateCw className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
                   </button>
+                </div>
+
+                {/* Secondary Audio Factor (Fallback) */}
+                <div className="p-6 bg-blue-500/5 border border-blue-500/10 rounded-[32px] space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4" /> Secondary Audio Engine (Fallback)
+                      </h4>
+                      <p className="text-[10px] text-zinc-500 font-medium italic mt-1">
+                        Only used for voice generation if the regular API Pool is exhausted or cooling down.
+                      </p>
+                    </div>
+                    <button 
+                      onClick={handleSaveVertex}
+                      disabled={isSavingV}
+                      className="px-4 py-2 bg-blue-500 text-white text-[10px] font-black uppercase tracking-tighter rounded-xl hover:bg-blue-400 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      {isSavingV ? 'Saving...' : 'Update Fallback'}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
+                    <input
+                      type="password"
+                      value={vConfig.secondaryAudioKey || ''}
+                      onChange={(e) => setVConfig({...vConfig, secondaryAudioKey: e.target.value})}
+                      placeholder="Paste your Secondary Gemini API Key here..."
+                      className="w-full bg-black border border-white/5 rounded-2xl pl-12 pr-4 py-3 text-xs text-white focus:border-blue-500 outline-none transition-all font-mono"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-4">
