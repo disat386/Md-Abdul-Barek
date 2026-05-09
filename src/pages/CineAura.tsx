@@ -135,6 +135,7 @@ export default function CineAura({ profile }: { profile: any }) {
     try {
       await updateDoc(doc(db, 'projects', pid), {
         scenes,
+        audioUrl,
         fullScript,
         activeStep,
         progress,
@@ -155,7 +156,7 @@ export default function CineAura({ profile }: { profile: any }) {
     if (projectId && (scenes.length > 0 || activeStep !== 'script')) {
       saveProjectState();
     }
-  }, [scenes, activeStep, fullScript, topic, voice, theme]);
+  }, [scenes, activeStep, fullScript, topic, voice, theme, audioUrl]);
 
   useEffect(() => {
     return () => aiService.stopSpeaking();
@@ -561,29 +562,26 @@ export default function CineAura({ profile }: { profile: any }) {
       }
 
       // Final Check - Get latest data for transition decision
-      let finalScenes: Scene[] = [];
-      await new Promise<void>(resolve => {
-        setScenes(s => {
-          finalScenes = s;
-          resolve();
-          return s;
-        });
+      let currentScenes: Scene[] = [];
+      setScenes(s => {
+        currentScenes = s;
+        return s;
       });
 
-      const finalMissing = finalScenes.some(s => !s.imageUrl);
+      const finalMissing = currentScenes.some(s => !s.imageUrl);
 
       // CRITICAL: Ensure loading is cleared IMMEDIATELY when work is done
       setIsLoading(false);
 
       if (finalMissing) {
-        setStatusMessage('Generation complete with some failed frames.');
+        setStatusMessage('Storyboards ready with some failed frames. Please regenerate failed items.');
       } else {
         setStatusMessage('Cinematography Mastered!');
         setProgress(100);
         // Direct transition for better UX
         setTimeout(() => {
           setActiveStep('video');
-        }, 1000);
+        }, 800);
       }
 
     } catch (err: any) {

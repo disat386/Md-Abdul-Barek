@@ -115,6 +115,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     try {
       await updateDoc(doc(db, 'projects', pid), {
         scenes,
+        audioUrl,
         fullScript,
         activeStep,
         progress,
@@ -138,7 +139,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     if (projectId && (scenes.length > 0 || activeStep !== 'script')) {
       saveProjectState();
     }
-  }, [scenes, activeStep, fullScript, topic, voice, theme, isPartStory, numParts, partLength]);
+  }, [scenes, activeStep, fullScript, topic, voice, theme, isPartStory, numParts, partLength, audioUrl]);
   
   useEffect(() => {
     return () => aiService.stopSpeaking();
@@ -536,29 +537,26 @@ export default function ReelAura({ profile }: { profile: any }) {
       }
 
       // Final status and transition blocker - Get latest data
-      let finalScenes: Scene[] = [];
-      await new Promise<void>(resolve => {
-        setScenes(s => {
-          finalScenes = s;
-          resolve();
-          return s;
-        });
+      let currentScenes: Scene[] = [];
+      setScenes(s => {
+        currentScenes = s;
+        return s;
       });
 
-      const finalMissing = finalScenes.some(s => !s.imageUrl);
+      const finalMissing = currentScenes.some(s => !s.imageUrl);
 
       // CRITICAL: Ensure loading is cleared IMMEDIATELY when work is done
       setIsLoading(false);
 
       if (finalMissing) {
-        setStatusMessage('Reel ready with some failed frames.');
+        setStatusMessage('Reel ready with some failed frames. Please regenerate failed items.');
       } else {
         setStatusMessage('Storyboard Perfected!');
         setProgress(100);
         // Transition for better UX
         setTimeout(() => {
           setActiveStep('video');
-        }, 1000);
+        }, 800);
       }
     } catch (err: any) {
       setError(err.message);
