@@ -135,8 +135,14 @@ export default function CineAura({ profile }: { profile: any }) {
     try {
       await updateDoc(doc(db, 'projects', pid), {
         scenes,
+        fullScript,
         activeStep,
         progress,
+        topic,
+        language,
+        voice,
+        length,
+        theme,
         updatedAt: serverTimestamp(),
         ...updates
       });
@@ -791,13 +797,27 @@ export default function CineAura({ profile }: { profile: any }) {
       const snap = await getDoc(doc(db, 'projects', pid));
       if (snap.exists()) {
         const data = snap.data();
-        if (data.scenes) setScenes(data.scenes);
+        if (data.scenes) {
+          setScenes(data.scenes);
+          setImages(data.scenes.map((s: any) => s.imageUrl || ''));
+        }
         if (data.activeStep) setActiveStep(data.activeStep as Step);
         if (data.topic) setTopic(data.topic);
-        if (data.title) setTopic(data.title);
+        if (data.title && !data.topic) setTopic(data.title);
         if (data.progress) setProgress(data.progress);
         if (data.theme) setTheme(data.theme);
+        if (data.fullScript) setFullScript(data.fullScript);
+        if (data.language) setLanguage(data.language);
+        if (data.voice) setVoice(data.voice);
+        if (data.length) setLength(data.length);
+        if (data.audioUrl) setAudioUrl(data.audioUrl);
         
+        // Fallback: If fullScript is missing but scenes have narration, reconstruct it
+        if (!data.fullScript && data.scenes && data.scenes.length > 0) {
+          const reconstructed = data.scenes.map((s: any) => s.narration).join('\n');
+          setFullScript(reconstructed);
+        }
+
         // Auto-resume logic: If still processing, trigger the step
         if (data.status === 'processing') {
           // Determine which step to resume based on missing data

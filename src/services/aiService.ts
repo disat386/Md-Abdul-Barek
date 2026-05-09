@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { db, vertexAI, auth } from "../firebase";
 import { doc, getDoc, collection, getDocs, setDoc, addDoc, serverTimestamp, increment, onSnapshot } from "firebase/firestore";
 import { getGenerativeModel } from "firebase/ai";
@@ -171,31 +171,31 @@ class AIService {
         }
 
         // Direct fallback (ONLY works if in AI Studio or if key is provided)
-        const browserKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey;
+      const browserKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey;
         
-        if (!browserKey && !window.location.hostname.includes("run.app")) {
-           throw new Error("⚠️ Auurio Engine Error: Primary GEMINI_API_KEY missing in environment. Action: Add one in Admin Hub > Vertex AI > Rescue Key.");
-        }
-        const response = await this.client.models.generateContent({
-          model: modelName,
-          contents: prompt
+      if (!browserKey && !window.location.hostname.includes("run.app")) {
+          throw new Error("⚠️ Auurio Engine Error: Primary GEMINI_API_KEY missing in environment. Action: Add one in Admin Hub > Vertex AI > Rescue Key.");
+      }
+
+      const model = this.client.getGenerativeModel({ model: modelName });
+      const response = await model.generateContent(prompt);
+      const textResult = response.response.text();
+
+      if (textResult) {
+        // Log Usage
+        const tokens = response.response.usageMetadata || {};
+        const cost = this.calculateCost('story', modelName, tokens.promptTokenCount, tokens.candidatesTokenCount);
+        this.logUsage({ 
+          feature: 'story', 
+          modelId: modelName, 
+          inputTokens: tokens.promptTokenCount, 
+          outputTokens: tokens.candidatesTokenCount, 
+          cost 
         });
 
-        if (response.text) {
-          // Log Usage
-          const tokens = (response as any).usageMetadata || {};
-          const cost = this.calculateCost('story', modelName, tokens.promptTokenCount, tokens.candidatesTokenCount);
-          this.logUsage({ 
-            feature: 'story', 
-            modelId: modelName, 
-            inputTokens: tokens.promptTokenCount, 
-            outputTokens: tokens.candidatesTokenCount, 
-            cost 
-          });
-
-          onProgress?.("Script received and processed.");
-          return response.text;
-        }
+        onProgress?.("Script received and processed.");
+        return textResult;
+      }
         
       } catch (err: any) {
         lastError = err;
@@ -640,9 +640,10 @@ class AIService {
           throw new Error("Narration Engine: All keys (including Rescue Key) are exhausted or cooling down.");
         }
 
-        // Use ONLY one reliable model per key to avoid exhausting RPM
+        // Use ONLY reliable models for TTS
         const audioModels = [
-          "gemini-1.5-flash"
+          "gemini-1.5-flash",
+          "gemini-2.0-flash-exp"
         ];
         
         for (const entry of clientsToTry) {
@@ -661,15 +662,22 @@ class AIService {
               
               console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id || 'PRIMARY'} on ${modelId}...`);
               
-              const timeoutMs = 60000;
-              const response = await entry.client.models.generateContent({
-                model: modelId,
-                contents: [{ parts: [{ text: narrationPrompt }] }],
-                config: {
-                  responseModalities: [Modality.AUDIO],
-                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } }
+              const model = entry.client.getGenerativeModel({ model: modelId });
+              const result = await model.generateContent({
+                contents: [{ role: 'user', parts: [{ text: narrationPrompt }] }],
+                generationConfig: {
+                  responseModalities: ["AUDIO"],
+                  speechConfig: {
+                    voiceConfig: {
+                      prebuiltVoiceConfig: {
+                        voiceName: voiceName
+                      }
+                    }
+                  }
                 }
               });
+              
+              const response = result.response;
               
               // Extract audio data from response parts
               let audioData = null;
