@@ -563,29 +563,46 @@ export default function CineAura({ profile }: { profile: any }) {
       }
 
       // Final Check
-      let finalScenes: Scene[] = [];
-      setScenes(s => { finalScenes = s; return s; });
-      const finalMissing = finalScenes.some(s => !s.imageUrl);
+      const trulyFinalScenes = await new Promise<Scene[]>(resolve => {
+        setScenes(s => { resolve(s); return s; });
+      });
+      const finalMissing = trulyFinalScenes.some(s => !s.imageUrl);
 
-      setIsLoading(false);
-      
       if (!finalMissing) {
         setStatusMessage('Cinematography Mastered!');
         setProgress(100);
+        
+        // Update project status in DB so resume logic handles it correctly
+        if (projectId) {
+          try {
+            await updateDoc(doc(db, 'projects', projectId), { 
+              status: 'ready', 
+              progress: 100,
+              updatedAt: serverTimestamp() 
+            });
+          } catch (e) {
+            console.warn("DB update failed at finish", e);
+          }
+        }
+
         setTimeout(() => {
+          setIsLoading(false);
           setActiveStep('video');
           setStatusMessage('');
-        }, 1000);
+        }, 800);
       } else {
+        setIsLoading(false);
         setStatusMessage('Completed with some failed frames. Please retry manually.');
       }
-
     } catch (err: any) {
+      console.error("Cine Generator Terminal Error:", err);
       setError(err.message);
       setIsLoading(false);
     } finally {
       setIsLoading(false);
-      setTimeout(() => setStatusMessage(''), 3000);
+      setTimeout(() => {
+        if (statusMessage === 'Cinematography Mastered!') setStatusMessage('');
+      }, 3000);
     }
   };
 
@@ -821,24 +838,25 @@ export default function CineAura({ profile }: { profile: any }) {
         }
 
         if (data.status === 'processing') {
-          // Determine which step to resume based on missing data
           setTimeout(() => {
              if (data.activeStep === 'visuals') {
                 const missingAny = data.scenes?.some((s: any) => !s.imageUrl);
-                if (missingAny) handleGenerateVisuals();
-                else { 
+                if (missingAny) {
+                  handleGenerateVisuals();
+                } else { 
                   setIsLoading(false);
                   setStatusMessage('Resources Synchronized');
+                  setActiveStep('video'); // Auto-advance if already done
                   setTimeout(() => setStatusMessage(''), 2000);
                 }
-             }
-             else if (data.activeStep === 'voice') handleGenerateVoice();
-             else {
+             } else if (data.activeStep === 'voice') {
+                handleGenerateVoice();
+             } else {
                setIsLoading(false);
                setStatusMessage('Workspace Restored');
                setTimeout(() => setStatusMessage(''), 2000);
              }
-          }, 1000);
+          }, 800);
         } else {
           setIsLoading(false);
           setStatusMessage('Workspace Restored');

@@ -543,31 +543,47 @@ export default function ReelAura({ profile }: { profile: any }) {
         }
       }
 
-      // Final status and transition blocker - Get latest data
-      let finalScenes: Scene[] = [];
-      setScenes(s => { finalScenes = s; return s; });
-
-      const finalMissing = finalScenes.some(s => !s.imageUrl);
-
-      // CRITICAL: Ensure loading is cleared IMMEDIATELY when work is done
-      setIsLoading(false);
+      // Final Check
+      const trulyFinalScenes = await new Promise<Scene[]>(resolve => {
+        setScenes(s => { resolve(s); return s; });
+      });
+      const finalMissing = trulyFinalScenes.some(s => !s.imageUrl);
 
       if (!finalMissing) {
         setStatusMessage('Storyboard Perfected!');
         setProgress(100);
+        
+        // Update project status in DB so resume logic handles it correctly
+        if (projectId) {
+          try {
+            await updateDoc(doc(db, 'projects', projectId), { 
+              status: 'ready', 
+              progress: 100,
+              updatedAt: serverTimestamp() 
+            });
+          } catch (e) {
+            console.warn("Reel DB update failure", e);
+          }
+        }
+
         setTimeout(() => {
+          setIsLoading(false);
           setActiveStep('video');
           setStatusMessage('');
-        }, 1000);
+        }, 800);
       } else {
-        setStatusMessage('Reel ready with some failed frames. Please regenerate failed items.');
+        setIsLoading(false);
+        setStatusMessage('Reel ready with some failed frames. Please retry manually.');
       }
     } catch (err: any) {
+      console.error("Reel Generator Error:", err);
       setError(err.message);
       setIsLoading(false);
     } finally {
       setIsLoading(false);
-      setTimeout(() => setStatusMessage(''), 3000);
+      setTimeout(() => {
+        if (statusMessage === 'Storyboard Perfected!') setStatusMessage('');
+      }, 3000);
     }
   };
 
@@ -832,20 +848,22 @@ export default function ReelAura({ profile }: { profile: any }) {
           setTimeout(() => {
              if (data.activeStep === 'visuals') {
                 const missingAny = data.scenes?.some((s: any) => !s.imageUrl);
-                if (missingAny) handleGenerateVisuals();
-                else { 
+                if (missingAny) {
+                  handleGenerateVisuals();
+                } else { 
                   setIsLoading(false);
                   setStatusMessage('Production Synchronized');
+                  setActiveStep('video'); // Auto-advance if already done
                   setTimeout(() => setStatusMessage(''), 2000);
                 }
-             }
-             else if (data.activeStep === 'voice') handleGenerateVoice();
-             else {
+             } else if (data.activeStep === 'voice') {
+                handleGenerateVoice();
+             } else {
                setIsLoading(false);
                setStatusMessage('Workspace Restored');
                setTimeout(() => setStatusMessage(''), 2000);
              }
-          }, 1000);
+          }, 800);
         } else {
           setIsLoading(false);
           setStatusMessage('Workspace Restored');
