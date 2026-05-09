@@ -22,12 +22,12 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
 
   // Initialize Gemini for Server-side Proxy
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
   
   if (!apiKey) {
-    console.warn("⚠️  Auurio Server: GEMINI_API_KEY is missing from environment. Proxy active but will fail calls.");
+    console.error("CRITICAL: GEMINI_API_KEY is not found in process.env. Fix: Add 'GEMINI_API_KEY' to your environment.");
   } else {
-    console.log(`✅ Auurio Server: GEMINI_API_KEY verified (${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}). Proxy ready.`);
+    console.log(`✅ Auurio Server: Key Active [${apiKey.substring(0, 5)}...]`);
   }
 
   const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
@@ -38,7 +38,8 @@ async function startServer() {
       status: "ok", 
       message: "Auurio stable backend is active",
       hasKey: !!apiKey,
-      nodeEnv: process.env.NODE_ENV
+      node: process.version,
+      envKeys: Object.keys(process.env).filter(k => k.includes('KEY'))
     });
   });
 

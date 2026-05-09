@@ -97,6 +97,18 @@ export default function AdminPanel({ profile }: { profile: any }) {
   }, []);
 
   const [currentUserData, setCurrentUserData] = useState<any>(null);
+  const [serverHealth, setServerHealth] = useState<any>(null);
+
+  const checkServer = async () => {
+    try {
+      const res = await fetch('/api/health');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setServerHealth(data);
+    } catch (e: any) {
+      setServerHealth({ status: 'offline', error: e.message });
+    }
+  };
 
   const fetchKeys = async () => {
     setIsRefreshingKeys(true);
@@ -211,6 +223,7 @@ export default function AdminPanel({ profile }: { profile: any }) {
     // Fetch Vertex Config & User Role
     const fetchData = async () => {
       try {
+        checkServer();
         const vSnap = await getDoc(doc(db, 'settings', 'vertex_config'));
         if (vSnap.exists()) setVConfig(vSnap.data() as any);
         
@@ -1012,8 +1025,77 @@ export default function AdminPanel({ profile }: { profile: any }) {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="bg-zinc-900 border border-white/5 rounded-3xl p-8 space-y-8"
+                className="space-y-8"
               >
+                <div className="bg-zinc-950/80 border border-white/5 rounded-[40px] p-8 md:p-10 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-8">
+                    <button 
+                      onClick={checkServer}
+                      className="p-2 hover:bg-white/5 rounded-xl text-zinc-500 transition-all active:rotate-180"
+                    >
+                      <RotateCw className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-6 mb-10">
+                    <div className="p-4 bg-orange-500/10 rounded-3xl">
+                      <Globe className="w-8 h-8 text-orange-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black italic tracking-tighter uppercase text-white">Production Analytics</h3>
+                      <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Diagnostic suite for auurio.com</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="p-6 bg-black/40 border border-white/5 rounded-3xl">
+                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Server Reachability</p>
+                      <div className="flex items-center gap-3">
+                        <div className={cn("w-3 h-3 rounded-full animate-pulse", serverHealth?.status === 'ok' ? "bg-green-500" : "bg-red-500")} />
+                        <span className="font-black text-white uppercase text-sm tracking-tight">{serverHealth?.status === 'ok' ? 'ONLINE' : 'UNREACHABLE'}</span>
+                      </div>
+                    </div>
+                    <div className="p-6 bg-black/40 border border-white/5 rounded-3xl">
+                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Environment Key</p>
+                      <div className="flex items-center gap-3">
+                        {serverHealth?.hasKey ? (
+                          <CheckCircle2 className="w-5 h-5 text-green-500" />
+                        ) : (
+                          <AlertCircle className="w-5 h-5 text-red-500" />
+                        )}
+                        <span className="font-black text-white uppercase text-sm tracking-tight">{serverHealth?.hasKey ? 'DETECTED' : 'MISSING'}</span>
+                      </div>
+                    </div>
+                    <div className="p-6 bg-black/40 border border-white/5 rounded-3xl">
+                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Runtime Version</p>
+                      <span className="font-mono text-zinc-400 text-xs font-bold leading-none">{serverHealth?.node || 'BUILD TIME'}</span>
+                    </div>
+                  </div>
+
+                  {!serverHealth?.hasKey && (
+                    <div className="mt-10 p-8 bg-orange-500/10 border border-orange-500/20 rounded-[32px] flex flex-col md:flex-row items-center md:items-start gap-6">
+                      <div className="p-4 bg-orange-500/20 rounded-2xl">
+                        <AlertCircle className="w-6 h-6 text-orange-500" />
+                      </div>
+                      <div className="space-y-3 text-center md:text-left">
+                        <h4 className="font-black text-orange-500 text-lg uppercase tracking-tighter">Primary Key Missing on Hostinger</h4>
+                        <p className="text-zinc-400 text-sm leading-relaxed font-medium">
+                          Your server is running but cannot see <code className="text-white bg-zinc-800 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code>. This is common on Hostinger Shared Hosting.
+                          <br /><br />
+                          <span className="text-white font-bold italic">RESCUE ENABLED:</span> I have modified the system to use your <strong>API Pool</strong> as a fallback. Simply add one working Gemini key to the "API Pool" tab, and the tools will start working immediately.
+                        </p>
+                        <button 
+                          onClick={() => setActiveTab('keys')}
+                          className="px-6 py-2 bg-orange-500 text-black font-black uppercase tracking-tighter text-xs rounded-xl mt-2 hover:bg-orange-400 transition-all"
+                        >
+                          Go to API Pool
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-zinc-900 border border-white/5 rounded-3xl p-8 space-y-8">
                 <div className="flex items-center justify-between border-b border-white/5 pb-6">
                   <div className="flex items-center gap-4">
                     <div className="p-3 bg-orange-500/10 rounded-2xl">
@@ -1116,8 +1198,9 @@ export default function AdminPanel({ profile }: { profile: any }) {
                     We moved from a local Node.js proxy to the <span className="text-white">Vertex AI for Firebase SDK</span>. This allows you to host the app on static platforms (like Hostinger) while still securely using your Google Cloud credits. No service account key is needed in the client-side code anymore — authentication is managed through your Firebase project permissions.
                   </p>
                 </div>
-              </motion.div>
-            )}
+              </div>
+            </motion.div>
+          )}
           </AnimatePresence>
         </div>
 

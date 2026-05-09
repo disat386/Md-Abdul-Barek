@@ -84,29 +84,18 @@ class AIService {
           
           if (proxyRes.ok) {
             const data = await proxyRes.json();
-            if (data.text) {
-              onProgress?.("Script received via secure proxy.");
-              return data.text;
-            }
-          } else {
-            const data = await proxyRes.json().catch(() => ({}));
-            // If the proxy explicitly failed (e.g. 500 error from server), we catch it here
-            if (proxyRes.status >= 400) {
-              throw new Error(`Server API Error: ${data.error || 'Server side failed to process AI request. Check environment variables.'}`);
-            }
+            if (data.text) return data.text;
           }
-        } catch (proxyErr: any) {
-          console.warn("Auurio: Server proxy failed.", proxyErr);
-          // If the error message came from our explicit throw above, re-throw it to the UI
-          if (proxyErr.message.includes("Server API Error")) throw proxyErr;
+        } catch (proxyErr) {
+          console.warn("Auurio Proxy: Unreachable.");
         }
 
-        // Direct fallback (ONLY works if in AI Studio or if key is provided in Vite env)
-        const browserKey = process.env.GEMINI_API_KEY; // Northern Lights constraint
+        // Direct fallback (ONLY works if in AI Studio or if key is provided)
+        const browserKey = process.env.GEMINI_API_KEY;
+        
         if (!browserKey && !window.location.hostname.includes("run.app")) {
-           throw new Error("AI Engine: GEMINI_API_KEY is missing. Action: Create a '.env' file in your Hostinger root folder and add 'GEMINI_API_KEY=your_key'.");
+           throw new Error("⚠️ Auurio Engine Error: Primary GEMINI_API_KEY missing in environment.");
         }
-
         const response = await this.client.models.generateContent({
           model: modelName,
           contents: prompt
@@ -720,20 +709,16 @@ class AIService {
             if (proxyRes.ok) {
               const data = await proxyRes.json();
               if (data.image) return `data:image/png;base64,${data.image}`;
-            } else {
-              const data = await proxyRes.json().catch(() => ({}));
-              throw new Error(`CineGen Proxy Error: ${data.error || 'Server failed to render image. Check GEMINI_API_KEY settings.'}`);
             }
-          } catch (proxyErr: any) {
-            console.warn(`Auurio: Server proxy for ${currentModel} failed.`, proxyErr);
-            if (proxyErr.message.includes("CineGen Proxy")) throw proxyErr;
+          } catch (proxyErr) {
+            console.warn("Auurio Image Proxy: Unreachable.");
           }
         }
 
         if (currentModel.includes("imagen")) {
           // Direct fallback check
           if (!process.env.GEMINI_API_KEY && !window.location.hostname.includes("run.app")) {
-            throw new Error("Imagen requires GEMINI_API_KEY. Action: Add it to your server's '.env' file.");
+            throw new Error("⚠️ Image Engine Error: Primary GEMINI_API_KEY required.");
           }
           
           // Standard Imagen via @google/genai (Direct)
@@ -752,6 +737,9 @@ class AIService {
           }
         } else {
           // Nano Banana series (Direct)
+          if (!process.env.GEMINI_API_KEY && !window.location.hostname.includes("run.app")) {
+            throw new Error("⚠️ High-Res Generation requires GEMINI_API_KEY.");
+          }
           const response = await this.client.models.generateContent({
             model: currentModel,
             contents: {
