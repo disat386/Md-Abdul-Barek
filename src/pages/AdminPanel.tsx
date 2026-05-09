@@ -27,8 +27,30 @@ import {
   Eye,
   Check,
   X,
-  LayoutDashboard
+  LayoutDashboard,
+  BarChart3,
+  LineChart as LineChartIcon,
+  PieChart as PieChartIcon,
+  Activity as ActivityIcon,
+  DollarSign
 } from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  Cell, 
+  PieChart, 
+  Pie,
+  LineChart,
+  Line,
+  Legend,
+  AreaChart,
+  Area
+} from 'recharts';
 import { db } from '../firebase';
 import { 
   collection, 
@@ -60,7 +82,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function AdminPanel({ profile }: { profile: any }) {
-  const [activeTab, setActiveTab] = useState<'users' | 'packages' | 'payments' | 'coupons' | 'keys' | 'vertex' | 'settings'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'packages' | 'payments' | 'coupons' | 'keys' | 'vertex' | 'settings' | 'analytics'>('users');
   
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [editingCoupon, setEditingCoupon] = useState<any>(null);
@@ -80,8 +102,13 @@ export default function AdminPanel({ profile }: { profile: any }) {
   const [settings, setSettings] = useState({
     bkashNumber: '',
     nagadNumber: '',
-    minProfitMargin: 30
+    minProfitMargin: 30,
+    budgetLimit: 1300,
+    totalSpent: 0
   });
+
+  const [usageLogs, setUsageLogs] = useState<any[]>([]);
+  const [isRefreshingAnalytics, setIsRefreshingAnalytics] = useState(false);
 
   const [keys, setKeys] = useState<any[]>([]);
   const [newKey, setNewKey] = useState('');
@@ -274,6 +301,59 @@ export default function AdminPanel({ profile }: { profile: any }) {
       unsubSettings();
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      const q = query(collection(db, 'usage_logs'), orderBy('createdAt', 'desc'), limit(500));
+      const unsubscribe = onSnapshot(q, (snap) => {
+        setUsageLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setIsRefreshingAnalytics(false);
+      }, (err) => {
+        console.error("Analytics fetch error:", err);
+        setIsRefreshingAnalytics(false);
+      });
+      return () => unsubscribe();
+    }
+  }, [activeTab]);
+
+  const analyticsSummary = React.useMemo(() => {
+    if (!usageLogs.length) return null;
+
+    const costByFeatureRaw = usageLogs.reduce((acc: any, log: any) => {
+      acc[log.feature] = (acc[log.feature] || 0) + (log.cost || 0);
+      return acc;
+    }, {});
+
+    const costByModelRaw = usageLogs.reduce((acc: any, log: any) => {
+      acc[log.modelId] = (acc[log.modelId] || 0) + (log.cost || 0);
+      return acc;
+    }, {});
+
+    const dailyUsageRaw = usageLogs.reduce((acc: any, log: any) => {
+      const date = log.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent';
+      acc[date] = (acc[date] || 0) + (log.cost || 0);
+      return acc;
+    }, {});
+
+    const topUsersRaw = usageLogs.reduce((acc: any, log: any) => {
+      const email = log.userEmail || 'anonymous';
+      acc[email] = (acc[email] || 0) + (log.cost || 0);
+      return acc;
+    }, {});
+
+    const COLORS = ['#F97316', '#3B82F6', '#10B981', '#6366F1', '#EC4899', '#8B5CF6', '#F59E0B', '#14B8A6'];
+
+    return {
+      colors: COLORS,
+      costByFeature: Object.entries(costByFeatureRaw).map(([name, value]) => ({ name, value })),
+      costByModel: Object.entries(costByModelRaw).map(([name, value]) => ({ name, value })),
+      dailyUsage: Object.entries(dailyUsageRaw).map(([name, value]) => ({ name, value })).reverse().slice(0, 15),
+      topUsers: Object.entries(topUsersRaw)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a: any, b: any) => (b.value as number) - (a.value as number))
+        .slice(0, 10)
+    };
+  }, [usageLogs]);
 
   // User Management Actions
   const handleSearchUsers = async () => {
@@ -515,6 +595,7 @@ export default function AdminPanel({ profile }: { profile: any }) {
           { id: 'payments', label: 'Payments', icon: CreditCard },
           { id: 'coupons', label: 'Coupons', icon: Ticket },
           { id: 'keys', label: 'API Pool', icon: Key },
+          { id: 'analytics', label: 'Smart Analytics', icon: BarChart3 },
           { id: 'vertex', label: 'Vertex AI', icon: Database },
           { id: 'settings', label: 'Settings', icon: SettingsIcon },
         ].map((tab) => (
@@ -1048,6 +1129,201 @@ export default function AdminPanel({ profile }: { profile: any }) {
                       </div>
                     );
                   })}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'analytics' && (
+              <motion.div
+                key="analytics"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                className="space-y-8"
+              >
+                {/* Budget Overview */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-zinc-900 border border-white/5 rounded-[32px] p-8 flex items-center justify-between group hover:border-orange-500/20 transition-all">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Budget</p>
+                      <h2 className="text-3xl font-black text-white italic tracking-tighter">${settings.budgetLimit || 1300}</h2>
+                    </div>
+                    <div className="p-4 bg-orange-500/10 rounded-2xl text-orange-500 group-hover:scale-110 transition-transform">
+                      <DollarSign className="w-6 h-6" />
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900 border border-white/5 rounded-[32px] p-8 flex items-center justify-between group hover:border-blue-500/20 transition-all">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Spent</p>
+                      <h2 className="text-3xl font-black text-white italic tracking-tighter">${settings.totalSpent?.toFixed(4) || 0}</h2>
+                    </div>
+                    <div className="p-4 bg-blue-500/10 rounded-2xl text-blue-500 group-hover:scale-110 transition-transform">
+                      <ActivityIcon className="w-6 h-6" />
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900 border border-white/5 rounded-[32px] p-8 flex items-center justify-between group hover:border-green-500/20 transition-all">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Remaining Credit</p>
+                      <h2 className="text-3xl font-black text-green-500 italic tracking-tighter">${((settings.budgetLimit || 1300) - (settings.totalSpent || 0)).toFixed(4)}</h2>
+                    </div>
+                    <div className="p-4 bg-green-500/10 rounded-2xl text-green-500 group-hover:scale-110 transition-transform">
+                      <TrendingUp className="w-6 h-6" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                   {/* Usage Trend */}
+                   <div className="bg-zinc-900 border border-white/5 rounded-[40px] p-8">
+                     <h3 className="text-sm font-black text-white uppercase tracking-widest mb-8 flex items-center gap-2">
+                       <LineChartIcon className="w-4 h-4 text-blue-500" /> Usage Trend (USD)
+                     </h3>
+                     <div className="h-[300px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={analyticsSummary?.dailyUsage || []}>
+                            <defs>
+                              <linearGradient id="colorUsage" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1f2937" />
+                            <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} stroke="#4B5563" />
+                            <YAxis fontSize={10} axisLine={false} tickLine={false} stroke="#4B5563" />
+                            <Tooltip 
+                              contentStyle={{ backgroundColor: '#18181b', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                              itemStyle={{ color: '#3B82F6', fontWeight: 900 }}
+                            />
+                            <Area type="monotone" dataKey="value" stroke="#3B82F6" fillOpacity={1} fill="url(#colorUsage)" strokeWidth={3} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                     </div>
+                   </div>
+
+                   {/* Cost by Feature */}
+                   <div className="bg-zinc-900 border border-white/5 rounded-[40px] p-8">
+                     <h3 className="text-sm font-black text-white uppercase tracking-widest mb-8 flex items-center gap-2">
+                       <PieChartIcon className="w-4 h-4 text-orange-500" /> Feature Cost Distribution
+                     </h3>
+                     <div className="h-[300px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={analyticsSummary?.costByFeature || []}
+                              innerRadius={60}
+                              outerRadius={100}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {analyticsSummary?.costByFeature.map((entry: any, index: number) => (
+                                <Cell key={`cell-${index}`} fill={analyticsSummary.colors[index % analyticsSummary.colors.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#18181b', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                            />
+                            <Legend verticalAlign="bottom" height={36}/>
+                          </PieChart>
+                        </ResponsiveContainer>
+                     </div>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Top Spenders */}
+                  <div className="bg-zinc-900 border border-white/5 rounded-[40px] p-8">
+                    <h3 className="text-sm font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-purple-500" /> Top Spending Users
+                    </h3>
+                    <div className="space-y-4">
+                      {analyticsSummary?.topUsers.map((user: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5 hover:border-purple-500/20 transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-purple-500/10 flex items-center justify-center text-[10px] font-black text-purple-500">
+                              {idx + 1}
+                            </div>
+                            <span className="text-xs font-bold text-zinc-300">{user.name}</span>
+                          </div>
+                          <span className="text-xs font-black text-white tracking-widest">${user.value.toFixed(4)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Profit Tracker */}
+                  <div className="bg-zinc-900 border border-white/5 rounded-[40px] p-8">
+                    <h3 className="text-sm font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-green-500" /> Model Efficiency
+                    </h3>
+                    <div className="h-[300px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={analyticsSummary?.costByModel || []}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1f2937" />
+                            <XAxis dataKey="name" fontSize={8} axisLine={false} tickLine={false} stroke="#4B5563" />
+                            <YAxis fontSize={10} axisLine={false} tickLine={false} stroke="#4B5563" />
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#18181b', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                            />
+                            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                              {analyticsSummary?.costByModel.map((entry: any, index: number) => (
+                                <Cell key={`cell-${index}`} fill={analyticsSummary.colors[index % analyticsSummary.colors.length]} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                     </div>
+                  </div>
+                </div>
+
+                {/* Recent Logs Table */}
+                <div className="bg-zinc-900 border border-white/5 rounded-[40px] overflow-hidden">
+                  <div className="p-8 border-b border-white/5 flex items-center justify-between">
+                    <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                      <ActivityIcon className="w-4 h-4 text-blue-500" /> Raw consumption Logs
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-black/50 text-[10px] uppercase tracking-widest text-zinc-500 border-b border-white/5">
+                          <th className="px-8 py-4">Timestamp</th>
+                          <th className="px-8 py-4">User</th>
+                          <th className="px-8 py-4">Feature</th>
+                          <th className="px-8 py-4">Model</th>
+                          <th className="px-8 py-4">Tokens (I/O)</th>
+                          <th className="px-8 py-4 text-right">Cost (USD)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {usageLogs.slice(0, 50).map((log) => (
+                          <tr key={log.id} className="hover:bg-white/5 transition-colors group">
+                            <td className="px-8 py-4 text-[10px] text-zinc-500 font-medium">
+                              {log.createdAt?.toDate?.()?.toLocaleString() || 'Processsing...'}
+                            </td>
+                            <td className="px-8 py-4 text-xs font-bold text-zinc-300">
+                              {log.userEmail}
+                            </td>
+                            <td className="px-8 py-4">
+                              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                                {log.feature}
+                              </span>
+                            </td>
+                            <td className="px-8 py-4 text-xs font-mono text-zinc-500">
+                              {log.modelId}
+                            </td>
+                            <td className="px-8 py-4 text-xs font-bold text-zinc-400">
+                              {log.inputTokens || 0} / {log.outputTokens || 0}
+                            </td>
+                            <td className="px-8 py-4 text-right text-xs font-black text-white tracking-widest">
+                              ${log.cost?.toFixed(5)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </motion.div>
             )}

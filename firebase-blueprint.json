@@ -155,11 +155,33 @@
       "properties": {
         "bkashNumber": { "type": "string" },
         "nagadNumber": { "type": "string" },
-        "minProfitMargin": { "type": "number" }
+        "minProfitMargin": { "type": "number" },
+        "budgetLimit": { "type": "number" },
+        "totalSpent": { "type": "number" }
       }
+    },
+    "UsageLog": {
+      "title": "AI Usage Log",
+      "description": "Tracking token usage and cost for every AI generation call.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "feature": { "type": "string" },
+        "modelId": { "type": "string" },
+        "inputTokens": { "type": "number" },
+        "outputTokens": { "type": "number" },
+        "cost": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "feature", "modelId", "cost", "createdAt"]
     }
   },
   "firestore": {
+    "/usage_logs/{logId}": {
+      "schema": "UsageLog",
+      "description": "Detailed AI consumption and cost tracking."
+    },
     "/users/{userId}": {
       "schema": "User",
       "description": "User profiles and settings."

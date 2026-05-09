@@ -1,7 +1,17 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { db, vertexAI } from "../firebase";
-import { doc, getDoc, collection, getDocs, setDoc } from "firebase/firestore";
+import { db, vertexAI, auth } from "../firebase";
+import { doc, getDoc, collection, getDocs, setDoc, addDoc, serverTimestamp, increment } from "firebase/firestore";
 import { getGenerativeModel } from "firebase/ai";
+
+interface UsageLogData {
+  userId: string;
+  userEmail: string;
+  feature: 'story' | 'image' | 'voice' | 'video';
+  modelId: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cost: number;
+}
 
 interface VertexConfig {
   useFirebaseVertex?: boolean;
@@ -24,6 +34,52 @@ class AIService {
   private sharedAudioCtx: AudioContext | null = null;
   private pooledClientsCache: any[] | null = null;
   private lastPoolFetch = 0;
+
+  private async logUsage(data: Omit<UsageLogData, 'userId' | 'userEmail'>) {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const log: any = {
+        ...data,
+        userId: user.uid,
+        userEmail: user.email || 'anonymous',
+        createdAt: serverTimestamp()
+      };
+
+      await addDoc(collection(db, 'usage_logs'), log);
+      
+      // Update global spent in settings
+      const settingsRef = doc(db, 'settings', 'global');
+      await setDoc(settingsRef, { 
+        totalSpent: increment(data.cost) 
+      }, { merge: true });
+
+    } catch (err) {
+      console.warn("Auurio: Failed to log usage", err);
+    }
+  }
+
+  private calculateCost(feature: UsageLogData['feature'], model: string, inputTokens: number = 0, outputTokens: number = 0): number {
+    if (feature === 'image') return 0.03; 
+    
+    let rateIn = 0.1 / 1000000; 
+    let rateOut = 0.4 / 1000000; 
+    
+    if (model.includes('pro')) {
+      rateIn = 1.25 / 1000000;
+      rateOut = 5.00 / 1000000;
+    } else if (model.includes('flash')) {
+      rateIn = 0.075 / 1000000;
+      rateOut = 0.30 / 1000000;
+    }
+
+    if (feature === 'voice') {
+      return (inputTokens + outputTokens) * (0.15 / 1000000); 
+    }
+
+    return (inputTokens * rateIn) + (outputTokens * rateOut);
+  }
 
   private async initialize() {
     if (this.isInitialized) return;
@@ -110,6 +166,17 @@ class AIService {
         });
 
         if (response.text) {
+          // Log Usage
+          const tokens = (response as any).usageMetadata || {};
+          const cost = this.calculateCost('story', modelName, tokens.promptTokenCount, tokens.candidatesTokenCount);
+          this.logUsage({ 
+            feature: 'story', 
+            modelId: modelName, 
+            inputTokens: tokens.promptTokenCount, 
+            outputTokens: tokens.candidatesTokenCount, 
+            cost 
+          });
+
           onProgress?.("Script received and processed.");
           return response.text;
         }
@@ -600,6 +667,17 @@ class AIService {
               }
               
               if (audioData) {
+                // Log Usage
+                const tokens = (response as any).usageMetadata || {};
+                const cost = this.calculateCost('voice', modelId, tokens.promptTokenCount, tokens.candidatesTokenCount);
+                this.logUsage({ 
+                  feature: 'voice', 
+                  modelId: modelId, 
+                  inputTokens: tokens.promptTokenCount, 
+                  outputTokens: tokens.candidatesTokenCount, 
+                  cost 
+                });
+
                 return await this.processAudioResponse(audioData, mimeType, entry.id, current, total, modelId, entry.isPooled);
               }
               
@@ -732,7 +810,11 @@ class AIService {
             
             if (proxyRes.ok) {
               const data = await proxyRes.json();
-              if (data.image) return `data:image/png;base64,${data.image}`;
+              if (data.image) {
+                // Log Usage
+                this.logUsage({ feature: 'image', modelId: currentModel, cost: 0.03 });
+                return `data:image/png;base64,${data.image}`;
+              }
             }
           } catch (proxyErr) {
             console.warn("Auurio Image Proxy: Unreachable.");
@@ -756,6 +838,8 @@ class AIService {
           });
           const bytes = response?.generatedImages?.[0]?.image?.imageBytes;
           if (bytes) {
+            // Log Usage
+            this.logUsage({ feature: 'image', modelId: currentModel, cost: 0.03 });
             const base64 = typeof bytes === 'string' ? bytes : this.uint8ArrayToBase64(bytes as Uint8Array);
             return `data:image/png;base64,${base64}`;
           }
