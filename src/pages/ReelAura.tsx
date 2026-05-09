@@ -366,6 +366,10 @@ export default function ReelAura({ profile }: { profile: any }) {
       if (!res.url) throw new Error("Voice synthesis failure.");
 
       setAudioUrl(res.url);
+      
+      // Save immediately to prevent loss on reload
+      await saveProjectState({ audioUrl: res.url });
+      
       setIsLoading(false); // Clear earlier
 
       // Sync durations
@@ -557,16 +561,15 @@ export default function ReelAura({ profile }: { profile: any }) {
         setProgress(100);
         
         // Update project status in DB so resume logic handles it correctly
-        if (projectId) {
-          try {
-            await updateDoc(doc(db, 'projects', projectId), { 
-              status: 'ready', 
-              progress: 100,
-              updatedAt: serverTimestamp() 
-            });
-          } catch (e) {
-            console.warn("Reel DB update failure", e);
-          }
+        try {
+          await saveProjectState({ 
+            scenes: trulyFinalScenes,
+            status: 'ready', 
+            progress: 100,
+            activeStep: 'video' 
+          });
+        } catch (e) {
+          console.warn("Reel DB update failure", e);
         }
 
         setTimeout(() => {
@@ -773,18 +776,19 @@ export default function ReelAura({ profile }: { profile: any }) {
 
       for (let i = 0; i < stepsList.length; i++) {
         setStatusMessage(stepsList[i]);
-        const stepDuration = 1500; 
-        const startTime = Date.now();
-        while (Date.now() - startTime < stepDuration) {
-          const elapsed = Date.now() - startTime;
-          const stepProgress = Math.floor((elapsed / stepDuration) * 20);
+        const stepDuration = 1500; // ms per step
+        const ticks = 15;
+        const tickMs = stepDuration / ticks;
+        
+        for (let t = 0; t < ticks; t++) {
+          const stepProgress = Math.floor((t / ticks) * 20);
           const totalProgress = (i * 20) + stepProgress;
           setProgress(totalProgress);
           
-          if (stepProgress === 10) {
+          if (t === 7 && currentPid) {
              await updateDoc(doc(db, 'projects', currentPid), { progress: totalProgress });
           }
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, tickMs));
         }
       }
       
@@ -1340,7 +1344,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                   </div>
 
                  <button 
-                  onClick={handleGenerateVisuals}
+                  onClick={() => handleGenerateVisuals()}
                   disabled={isLoading}
                   className="w-full py-4 bg-blue-500 text-white font-black uppercase tracking-tighter flex items-center justify-center gap-2 rounded-2xl hover:bg-blue-400 transition-all active:scale-95 disabled:opacity-50"
                 >
