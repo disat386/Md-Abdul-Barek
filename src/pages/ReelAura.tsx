@@ -420,19 +420,20 @@ export default function ReelAura({ profile }: { profile: any }) {
     }
   };
 
-  const handleGenerateVisuals = async () => {
-    if (scenes.length === 0) return;
+  const handleGenerateVisuals = async (passedScenes?: Scene[]) => {
+    const workingScenes = passedScenes || scenes;
+    if (workingScenes.length === 0) return;
 
-    // Fast transition if all scenes already have images
-    const hasAnyMissing = scenes.some(s => !s.imageUrl || s.status.visual !== 'done');
+    // Fast transition if all workingScenes already have images
+    const hasAnyMissing = workingScenes.some(s => !s.imageUrl || s.status.visual !== 'done');
     if (!hasAnyMissing) {
-      setStatusMessage('Storyboard already perfected! Moving to Production...');
+      setStatusMessage('Storyboard already perfected! Starting Production...');
       setProgress(100);
       setTimeout(() => {
         setIsLoading(false);
-        setActiveStep('video');
+        handleAssembleVideo();
         setStatusMessage('');
-      }, 800);
+      }, 500);
       return;
     }
 
@@ -444,13 +445,13 @@ export default function ReelAura({ profile }: { profile: any }) {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.IMAGE_GENERATION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
-      const totalScenes = scenes.length;
-      let completedCount = scenes.filter(s => s.imageUrl && s.status.visual === 'done').length;
+      const totalScenes = workingScenes.length;
+      let completedCount = workingScenes.filter(s => s.imageUrl && s.status.visual === 'done').length;
 
       // Controlled parallelism (Concurrency 5) for Reels to ensure high-speed but stable production
       const CONCURRENCY = 5;
       for (let i = 0; i < totalScenes; i += CONCURRENCY) {
-        const batch = scenes.slice(i, i + CONCURRENCY);
+        const batch = workingScenes.slice(i, i + CONCURRENCY);
         const batchIndices = Array.from({ length: batch.length }, (_, k) => i + k);
 
         await Promise.all(batch.map(async (scene, batchIdx) => {
@@ -511,10 +512,12 @@ export default function ReelAura({ profile }: { profile: any }) {
       
       while (rescuePasses < MAX_RESCUE_PASSES) {
         // Check for missing images using a functional update to get freshest current state
-        let currentScenes: Scene[] = [];
-        setScenes(s => { currentScenes = s; return s; });
+        let currentStatusScenes: Scene[] = [];
+        await new Promise<void>(resolve => {
+          setScenes(s => { currentStatusScenes = s; resolve(); return s; });
+        });
 
-        const failedIndices = currentScenes
+        const failedIndices = currentStatusScenes
           .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
           .filter(idx => idx !== -1);
           
@@ -525,7 +528,7 @@ export default function ReelAura({ profile }: { profile: any }) {
         
         for (const idx of failedIndices) {
           try {
-            const sceneData = currentScenes[idx];
+            const sceneData = currentStatusScenes[idx];
             const url = await generateSingleSceneImage(sceneData);
             setScenes(prev => {
               const next = [...prev];
@@ -568,7 +571,7 @@ export default function ReelAura({ profile }: { profile: any }) {
 
         setTimeout(() => {
           setIsLoading(false);
-          setActiveStep('video');
+          handleAssembleVideo();
           setStatusMessage('');
         }, 800);
       } else {
@@ -849,11 +852,11 @@ export default function ReelAura({ profile }: { profile: any }) {
              if (data.activeStep === 'visuals') {
                 const missingAny = data.scenes?.some((s: any) => !s.imageUrl);
                 if (missingAny) {
-                  handleGenerateVisuals();
+                  handleGenerateVisuals(data.scenes);
                 } else { 
                   setIsLoading(false);
                   setStatusMessage('Production Synchronized');
-                  setActiveStep('video'); // Auto-advance if already done
+                  handleAssembleVideo();
                   setTimeout(() => setStatusMessage(''), 2000);
                 }
              } else if (data.activeStep === 'voice') {
