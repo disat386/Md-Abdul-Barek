@@ -1,6 +1,6 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { db, vertexAI, auth } from "../firebase";
-import { doc, getDoc, collection, getDocs, setDoc, addDoc, serverTimestamp, increment } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, setDoc, addDoc, serverTimestamp, increment, onSnapshot } from "firebase/firestore";
 import { getGenerativeModel } from "firebase/ai";
 
 interface UsageLogData {
@@ -84,6 +84,22 @@ class AIService {
   private async initialize() {
     if (this.isInitialized) return;
     
+    // Set up real-time listener for config
+    onSnapshot(doc(db, "settings", "vertex_config"), (snap) => {
+      if (snap.exists()) {
+        const newConfig = snap.data() as VertexConfig;
+        this.config = newConfig;
+        
+        // Re-initialize clients with new keys if they changed
+        if (newConfig.primaryApiKey) {
+          this.client = new GoogleGenAI({ apiKey: newConfig.primaryApiKey });
+        }
+        if (newConfig.secondaryAudioKey) {
+          this.audioFallbackClient = new GoogleGenAI({ apiKey: newConfig.secondaryAudioKey });
+        }
+      }
+    });
+
     try {
       const configRef = doc(db, "settings", "vertex_config");
       const snap = await getDoc(configRef);
@@ -588,6 +604,7 @@ class AIService {
   }
 
   private primaryExhaustedUntil = 0;
+  private secondaryExhaustedUntil = 0;
 
   private async generateSingleAudioChunk(text: string, voiceId: string, language: string, current: number, total: number): Promise<{ url: string, pcm: string, mimeType: string }> {
     let attempts = 0;
@@ -611,10 +628,12 @@ class AIService {
 
         // LAST RESORT: Dedicated Secondary Audio Key (Fall-back)
         if (this.config?.secondaryAudioKey) {
-          if (!this.audioFallbackClient) {
-            this.audioFallbackClient = new GoogleGenAI({ apiKey: this.config.secondaryAudioKey });
+          if (Date.now() > this.secondaryExhaustedUntil) {
+            if (!this.audioFallbackClient) {
+              this.audioFallbackClient = new GoogleGenAI({ apiKey: this.config.secondaryAudioKey });
+            }
+            clientsToTry.push({ id: 'secondary-audio-fallback', client: this.audioFallbackClient, isPooled: false });
           }
-          clientsToTry.push({ id: 'secondary-audio-fallback', client: this.audioFallbackClient, isPooled: false });
         }
         
         if (clientsToTry.length === 0) {
@@ -689,8 +708,10 @@ class AIService {
                 console.warn(`Auurio: Key ${entry.id || 'primary'} Quota on ${modelId}. Rotating...`);
                 if (entry.isPooled && entry.id) {
                   await this.reportKeyStatus(entry.id, 'quota', err.message);
-                } else if (!entry.isPooled) {
+                } else if (entry.id === 'primary-vertex') {
                   this.primaryExhaustedUntil = Date.now() + (2 * 60 * 1000); 
+                } else if (entry.id === 'secondary-audio-fallback') {
+                  this.secondaryExhaustedUntil = Date.now() + (2 * 60 * 1000);
                 }
                 clientHitQuota = true;
                 break; 
