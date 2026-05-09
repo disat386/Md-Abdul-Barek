@@ -420,8 +420,8 @@ export default function ReelAura({ profile }: { profile: any }) {
     }
   };
 
-  const handleGenerateVisuals = async (passedScenes?: Scene[]) => {
-    const workingScenes = passedScenes || scenes;
+  const handleGenerateVisuals = async (passedScenes?: Scene[] | React.MouseEvent) => {
+    const workingScenes = Array.isArray(passedScenes) ? passedScenes : scenes;
     if (workingScenes.length === 0) return;
 
     // Fast transition if all workingScenes already have images

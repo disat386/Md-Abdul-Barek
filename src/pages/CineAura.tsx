@@ -449,8 +449,8 @@ export default function CineAura({ profile }: { profile: any }) {
     }
   };
 
-  const handleGenerateVisuals = async (passedScenes?: Scene[]) => {
-    const workingScenes = passedScenes || scenes;
+  const handleGenerateVisuals = async (passedScenes?: Scene[] | React.MouseEvent) => {
+    const workingScenes = Array.isArray(passedScenes) ? passedScenes : scenes;
     if (workingScenes.length === 0) return;
     
     // Check if we are already done. If so, just transition to assembly.
