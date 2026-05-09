@@ -6,6 +6,7 @@ import { getGenerativeModel } from "firebase/ai";
 interface VertexConfig {
   useFirebaseVertex?: boolean;
   modelId?: string;
+  primaryApiKey?: string;
 }
 
 class AIService {
@@ -33,11 +34,12 @@ class AIService {
         this.config = snap.data() as VertexConfig;
       }
       
-      // Northern Lights handles GEMINI_API_KEY injection
-      this.client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+      const apiKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey || '';
+      this.client = new GoogleGenAI({ apiKey });
     } catch (err) {
       console.warn("Auurio: Initialization error. Falling back.", err);
-      this.client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+      const apiKey = process.env.GEMINI_API_KEY || '';
+      this.client = new GoogleGenAI({ apiKey });
     }
     
     this.isInitialized = true;
@@ -91,10 +93,10 @@ class AIService {
         }
 
         // Direct fallback (ONLY works if in AI Studio or if key is provided)
-        const browserKey = process.env.GEMINI_API_KEY;
+        const browserKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey;
         
         if (!browserKey && !window.location.hostname.includes("run.app")) {
-           throw new Error("⚠️ Auurio Engine Error: Primary GEMINI_API_KEY missing in environment.");
+           throw new Error("⚠️ Auurio Engine Error: Primary GEMINI_API_KEY missing in environment. Action: Add one in Admin Hub > Vertex AI > Rescue Key.");
         }
         const response = await this.client.models.generateContent({
           model: modelName,
@@ -717,8 +719,8 @@ class AIService {
 
         if (currentModel.includes("imagen")) {
           // Direct fallback check
-          if (!process.env.GEMINI_API_KEY && !window.location.hostname.includes("run.app")) {
-            throw new Error("⚠️ Image Engine Error: Primary GEMINI_API_KEY required.");
+          if (!process.env.GEMINI_API_KEY && !this.config?.primaryApiKey && !window.location.hostname.includes("run.app")) {
+            throw new Error("⚠️ Image Engine Error: Primary GEMINI_API_KEY required. Set one in Admin Hub > Vertex AI.");
           }
           
           // Standard Imagen via @google/genai (Direct)
@@ -737,8 +739,8 @@ class AIService {
           }
         } else {
           // Nano Banana series (Direct)
-          if (!process.env.GEMINI_API_KEY && !window.location.hostname.includes("run.app")) {
-            throw new Error("⚠️ High-Res Generation requires GEMINI_API_KEY.");
+          if (!process.env.GEMINI_API_KEY && !this.config?.primaryApiKey && !window.location.hostname.includes("run.app")) {
+            throw new Error("⚠️ High-Res Generation requires GEMINI_API_KEY. Set one in Admin Hub > Vertex AI.");
           }
           const response = await this.client.models.generateContent({
             model: currentModel,

@@ -207,7 +207,8 @@ export default function AdminPanel({ profile }: { profile: any }) {
   // Vertex Config State
   const [vConfig, setVConfig] = useState({
     useFirebaseVertex: false,
-    modelId: 'gemini-2.0-flash-001'
+    modelId: 'gemini-2.0-flash-001',
+    primaryApiKey: ''
   });
   const [isSavingV, setIsSavingV] = useState(false);
   const [testStatus, setTestStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
@@ -1067,8 +1068,15 @@ export default function AdminPanel({ profile }: { profile: any }) {
                       </div>
                     </div>
                     <div className="p-6 bg-black/40 border border-white/5 rounded-3xl">
-                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Runtime Version</p>
-                      <span className="font-mono text-zinc-400 text-xs font-bold leading-none">{serverHealth?.node || 'BUILD TIME'}</span>
+                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Rescue Key (Firestore)</p>
+                      <div className="flex items-center gap-3">
+                        {vConfig?.primaryApiKey ? (
+                          <ShieldCheck className="w-5 h-5 text-green-500" />
+                        ) : (
+                          <X className="w-5 h-5 text-zinc-700" />
+                        )}
+                        <span className="font-black text-white uppercase text-sm tracking-tight">{vConfig?.primaryApiKey ? 'CONFIGURED' : 'EMPTY'}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -1082,14 +1090,20 @@ export default function AdminPanel({ profile }: { profile: any }) {
                         <p className="text-zinc-400 text-sm leading-relaxed font-medium">
                           Your server is running but cannot see <code className="text-white bg-zinc-800 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code>. This is common on Hostinger Shared Hosting.
                           <br /><br />
-                          <span className="text-white font-bold italic">RESCUE ENABLED:</span> I have modified the system to use your <strong>API Pool</strong> as a fallback. Simply add one working Gemini key to the "API Pool" tab, and the tools will start working immediately.
+                          <span className="text-white font-bold italic">RESCUE ENABLED:</span> I have modified the system to use your <strong>Primary Key</strong> from the settings below as a fallback. If you can't set it in your environment (.env), simply paste your Gemini API Key in the field below and save.
                         </p>
-                        <button 
-                          onClick={() => setActiveTab('keys')}
-                          className="px-6 py-2 bg-orange-500 text-black font-black uppercase tracking-tighter text-xs rounded-xl mt-2 hover:bg-orange-400 transition-all"
-                        >
-                          Go to API Pool
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button 
+                            onClick={() => {
+                              const el = document.getElementById('primary-key-input');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                              el?.focus();
+                            }}
+                            className="px-6 py-2 bg-orange-500 text-black font-black uppercase tracking-tighter text-xs rounded-xl mt-2 hover:bg-orange-400 transition-all"
+                          >
+                            Set Primary Key
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1139,6 +1153,23 @@ export default function AdminPanel({ profile }: { profile: any }) {
                     <p className="text-xs font-bold uppercase tracking-tight flex-1">{testStatus.message}</p>
                   </motion.div>
                 )}
+
+                  <div className="space-y-4 bg-black/40 p-6 rounded-2xl border border-white/5" id="primary-key-input">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Hostinger / Production API Key (Rescue Key)</label>
+                    <div className="relative">
+                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
+                      <input
+                        type="password"
+                        value={vConfig.primaryApiKey || ''}
+                        onChange={(e) => setVConfig({...vConfig, primaryApiKey: e.target.value})}
+                        placeholder="Paste your Primary Gemini API Key here..."
+                        className="w-full bg-black border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-sm text-white focus:border-orange-500 outline-none transition-all font-mono"
+                      />
+                    </div>
+                    <p className="text-[10px] text-zinc-500 font-medium italic">
+                      Use this if you are on Hostinger and cannot set environment variables. This key overrides the API pool for Story and Image generation to ensure high-quality Vertex outputs.
+                    </p>
+                  </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4 bg-black/40 p-6 rounded-2xl border border-white/5">
