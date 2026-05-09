@@ -560,25 +560,30 @@ export default function CineAura({ profile }: { profile: any }) {
         }
       }
 
-      // Final Check - if any stills missing, block transition
-      let finalMissing = false;
-      setScenes(current => {
-        finalMissing = current.some(s => !s.imageUrl);
-        return current;
+      // Final Check - Get latest data for transition decision
+      let finalScenes: Scene[] = [];
+      await new Promise<void>(resolve => {
+        setScenes(s => {
+          finalScenes = s;
+          resolve();
+          return s;
+        });
       });
 
+      const finalMissing = finalScenes.some(s => !s.imageUrl);
+
+      // CRITICAL: Ensure loading is cleared IMMEDIATELY when work is done
+      setIsLoading(false);
+
       if (finalMissing) {
-        setStatusMessage('Heads up: Some frames failed to render. Please regenerate manually.');
-        setIsLoading(false);
-        // User must manually fix or retry
+        setStatusMessage('Generation complete with some failed frames.');
       } else {
         setStatusMessage('Cinematography Mastered!');
         setProgress(100);
-        setIsLoading(false);
-        // Transition ONLY if perfect
+        // Direct transition for better UX
         setTimeout(() => {
           setActiveStep('video');
-        }, 1500);
+        }, 1000);
       }
 
     } catch (err: any) {

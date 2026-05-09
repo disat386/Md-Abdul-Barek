@@ -490,35 +490,34 @@ export default function ReelAura({ profile }: { profile: any }) {
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
       
-      // AUTO-RECONCILIATION: Mandatory Rescue Pass for Reels
-      setStatusMessage('Optimizing visual sequence & healing frames...');
+      // MANDATORY RESCUE PASS: Identity and heal any missing frames before finishing
+      setStatusMessage('Final visual sync & verification...');
       let rescuePasses = 0;
       const MAX_RESCUE_PASSES = 3;
       
       while (rescuePasses < MAX_RESCUE_PASSES) {
-        let failedIndices: number[] = [];
+        // Check for missing images using a functional update to get freshest current state
+        let currentScenes: Scene[] = [];
         await new Promise<void>(resolve => {
-          setScenes(current => {
-            failedIndices = current
-              .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
-              .filter(idx => idx !== -1);
+          setScenes(s => {
+            currentScenes = s;
             resolve();
-            return current;
+            return s;
           });
         });
+
+        const failedIndices = currentScenes
+          .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
+          .filter(idx => idx !== -1);
           
         if (failedIndices.length === 0) break;
         
         rescuePasses++;
-        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} items...`);
+        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} frames...`);
         
         for (const idx of failedIndices) {
           try {
-            let sceneData: any = null;
-            await new Promise<void>(resolve => {
-               setScenes(s => { sceneData = s[idx]; resolve(); return s; });
-            });
-
+            const sceneData = currentScenes[idx];
             const url = await generateSingleSceneImage(sceneData);
             setScenes(prev => {
               const next = [...prev];
@@ -531,29 +530,35 @@ export default function ReelAura({ profile }: { profile: any }) {
               return next;
             });
           } catch (e) {
-            console.error(`Reel rescue ${rescuePasses} failed for ${idx}`, e);
+            console.error(`Rescue attempt ${rescuePasses} failed for ${idx}`, e);
           }
         }
       }
 
-      // Final status and transition blocker
-      let finalMissing = false;
-      setScenes(current => {
-        finalMissing = current.some(s => !s.imageUrl);
-        return current;
+      // Final status and transition blocker - Get latest data
+      let finalScenes: Scene[] = [];
+      await new Promise<void>(resolve => {
+        setScenes(s => {
+          finalScenes = s;
+          resolve();
+          return s;
+        });
       });
 
+      const finalMissing = finalScenes.some(s => !s.imageUrl);
+
+      // CRITICAL: Ensure loading is cleared IMMEDIATELY when work is done
+      setIsLoading(false);
+
       if (finalMissing) {
-        setStatusMessage('Storyboard ready with some warnings. Please fix failed frames.');
-        setIsLoading(false);
+        setStatusMessage('Reel ready with some failed frames.');
       } else {
         setStatusMessage('Storyboard Perfected!');
         setProgress(100);
-        setIsLoading(false);
-        // Transition ONLY if perfect
+        // Transition for better UX
         setTimeout(() => {
           setActiveStep('video');
-        }, 1500);
+        }, 1000);
       }
     } catch (err: any) {
       setError(err.message);
