@@ -177,13 +177,14 @@ class AIService {
           throw new Error("⚠️ Auurio Engine Error: Primary GEMINI_API_KEY missing in environment. Action: Add one in Admin Hub > Vertex AI > Rescue Key.");
       }
 
-      const model = this.client.getGenerativeModel({ model: modelName });
-      const response = await model.generateContent(prompt);
-      const textResult = response.response.text();
+      const response = await this.client.models.generateContent({
+        model: modelName,
+        contents: prompt
+      });
 
-      if (textResult) {
+      if (response.text) {
         // Log Usage
-        const tokens = response.response.usageMetadata || {};
+        const tokens = (response as any).usageMetadata || {};
         const cost = this.calculateCost('story', modelName, tokens.promptTokenCount, tokens.candidatesTokenCount);
         this.logUsage({ 
           feature: 'story', 
@@ -194,7 +195,7 @@ class AIService {
         });
 
         onProgress?.("Script received and processed.");
-        return textResult;
+        return response.text;
       }
         
       } catch (err: any) {
@@ -640,10 +641,10 @@ class AIService {
           throw new Error("Narration Engine: All keys (including Rescue Key) are exhausted or cooling down.");
         }
 
-        // Use ONLY reliable models for TTS
+        // Use ONLY high-stability models for TTS
         const audioModels = [
-          "gemini-1.5-flash",
-          "gemini-2.0-flash-exp"
+          "gemini-3.1-flash-tts-preview",
+          "gemini-3-flash-preview"
         ];
         
         for (const entry of clientsToTry) {
@@ -662,10 +663,10 @@ class AIService {
               
               console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id || 'PRIMARY'} on ${modelId}...`);
               
-              const model = entry.client.getGenerativeModel({ model: modelId });
-              const result = await model.generateContent({
+              const response = await entry.client.models.generateContent({
+                model: modelId,
                 contents: [{ role: 'user', parts: [{ text: narrationPrompt }] }],
-                generationConfig: {
+                config: {
                   responseModalities: ["AUDIO"],
                   speechConfig: {
                     voiceConfig: {
@@ -676,8 +677,6 @@ class AIService {
                   }
                 }
               });
-              
-              const response = result.response;
               
               // Extract audio data from response parts
               let audioData = null;

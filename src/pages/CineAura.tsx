@@ -155,7 +155,7 @@ export default function CineAura({ profile }: { profile: any }) {
     if (projectId && (scenes.length > 0 || activeStep !== 'script')) {
       saveProjectState();
     }
-  }, [scenes, activeStep]); // Fixed: Added scenes as dependency to save on property updates like imageUrl
+  }, [scenes, activeStep, fullScript, topic, voice, theme]);
 
   useEffect(() => {
     return () => aiService.stopSpeaking();
@@ -233,44 +233,45 @@ export default function CineAura({ profile }: { profile: any }) {
       [/VISUALS]`;
 
       const generatedContent = await aiService.generateText(prompt, undefined, (status) => setStatusMessage(status));
-      setFullScript(generatedContent); // Keep raw for editing fallback or full view
-      
+      setFullScript(generatedContent);
+
       // Parse cohesive narrative and visual plan
       const narrativeMatch = generatedContent.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/i);
       const visualsBlock = generatedContent.match(/\[VISUALS\]([\s\S]*?)\[\/VISUALS\]/i);
       
-      if (!narrativeMatch) {
-         // Fallback if tags are missing but content is there
-         const fullNarration = generatedContent.split('[VISUALS]')[0].replace('[NARRATIVE]', '').trim();
-         const visualsPart = (generatedContent.split('[VISUALS]')[1] || '').replace('[/VISUALS]', '');
-         
-         const visualPrompts = visualsPart.split(/\[VISUAL\]/i)
-           .map(p => p.trim())
-           .filter(p => p.length > 5);
+      let finalNarration = "";
+      let finalVisuals: string[] = [];
 
-         processGeneratedContent(fullNarration, visualPrompts, frameCount);
+      if (!narrativeMatch) {
+         finalNarration = generatedContent.split('[VISUALS]')[0].replace('[NARRATIVE]', '').trim();
+         const visualsPart = (generatedContent.split('[VISUALS]')[1] || '').replace('[/VISUALS]', '');
+         finalVisuals = visualsPart.split(/\[VISUAL\]/i).map(p => p.trim()).filter(p => p.length > 5);
       } else {
-        const fullNarration = narrativeMatch[1].trim();
-        const visualPrompts = (visualsBlock ? visualsBlock[1] : '').split(/\[VISUAL\]/i)
-          .map(p => p.trim())
-          .filter(p => p.length > 5);
-        
-        processGeneratedContent(fullNarration, visualPrompts, frameCount);
+        finalNarration = narrativeMatch[1].trim();
+        finalVisuals = (visualsBlock ? visualsBlock[1] : '').split(/\[VISUAL\]/i).map(p => p.trim()).filter(p => p.length > 5);
       }
+
+      processGeneratedContent(finalNarration, finalVisuals, frameCount);
       
       await creditService.deduct(profile.uid, CREDIT_COSTS.STORY_GENERATION, 'STORY_GENERATION');
       
-      // Create project entry with expiry
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 30);
 
       const pRef = await addDoc(collection(db, 'projects'), {
         userId: profile.uid,
         title: topic,
+        topic,
         type: 'cine',
         status: 'draft',
         progress: 0,
         activeStep: 'editor',
+        fullScript: finalNarration,
+        scenes: processGeneratedContent(finalNarration, finalVisuals, frameCount, true), 
+        language,
+        length,
+        theme,
+        voice,
         createdAt: serverTimestamp(),
         expiresAt: expiresAt
       });
@@ -288,7 +289,7 @@ export default function CineAura({ profile }: { profile: any }) {
     }
   };
 
-  const processGeneratedContent = (fullNarration: string, visualPrompts: string[], frameCount: number) => {
+  const processGeneratedContent = (fullNarration: string, visualPrompts: string[], frameCount: number, returnOnly = false) => {
     // Distribute narrative into segments for the timeline
     // We split purely by targetFrames to ensure equal distribution across the 10s intervals
     const totalChars = fullNarration.length;
@@ -314,6 +315,8 @@ export default function CineAura({ profile }: { profile: any }) {
         }
       };
     });
+
+    if (returnOnly) return parsedScenes;
 
     setScenes(parsedScenes);
     setImages(parsedScenes.map(s => s.imageUrl));

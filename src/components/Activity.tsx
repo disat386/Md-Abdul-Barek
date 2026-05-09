@@ -201,31 +201,42 @@ export default function Activity({ userId }: ActivityProps) {
                     layout
                     className="bg-zinc-900/50 border border-white/5 group relative rounded-3xl overflow-hidden p-6 hover:border-white/20 hover:bg-zinc-900 transition-all duration-500 flex flex-col justify-between min-h-[220px]"
                   >
-                    <div>
+                    <div className="flex flex-col h-full">
                       <div className="flex items-start justify-between mb-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0 pr-4">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
                              <div className={cn(
-                               "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border",
+                               "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border shrink-0",
                                getStatusColor(project.status)
                              )}>
                                {project.status === 'processing' && <Loader2 className="w-2 h-2 animate-spin mr-1 inline" />}
                                {project.status}
                              </div>
-                             <div className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[8px] font-black uppercase tracking-widest border border-white/5">
+                             <div className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[8px] font-black uppercase tracking-widest border border-white/5 shrink-0">
                                {project.type === 'cine' ? 'Cinematic' : project.type === 'reel' ? 'Short Reel' : 'Thumbnail'}
                              </div>
                           </div>
-                          <h4 className="text-base md:text-lg font-black text-white leading-tight mt-2 group-hover:text-orange-500 transition-colors line-clamp-2 italic tracking-tighter uppercase">
+                          <h4 className="text-base md:text-lg font-black text-white leading-tight mt-1 group-hover:text-orange-500 transition-colors line-clamp-2 italic tracking-tighter uppercase">
                             {project.title || project.topic || 'Untitled Production'}
                           </h4>
                         </div>
-                        <button 
-                          onClick={(e) => handleDelete(project.id, e)}
-                          className="p-2 bg-zinc-800/50 rounded-lg text-zinc-600 hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex flex-col items-end gap-2">
+                          <button 
+                            onClick={(e) => handleDelete(project.id, e)}
+                            className="p-1.5 bg-zinc-800/50 rounded-lg text-zinc-600 hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                          {project.scenes?.[0]?.imageUrl && (
+                            <div className="w-14 h-14 rounded-xl overflow-hidden border border-white/5 hidden sm:block shadow-2xl">
+                              <img 
+                                src={project.scenes[0].imageUrl} 
+                                alt="preview" 
+                                className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700 scale-110 group-hover:scale-100"
+                              />
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {project.status === 'processing' && (
@@ -245,57 +256,56 @@ export default function Activity({ userId }: ActivityProps) {
                       )}
 
                       {project.scenes && (
-                        <div className="flex items-center gap-4 mb-4">
-                           <div className="flex flex-col">
-                             <span className="text-[8px] text-zinc-600 font-black uppercase tracking-widest">Frames</span>
+                        <div className="grid grid-cols-3 gap-2 mb-6 p-3 bg-zinc-800/30 rounded-2xl border border-white/5">
+                           <div className="flex flex-col items-center justify-center">
+                             <span className="text-[7px] text-zinc-600 font-black uppercase tracking-widest leading-none mb-1">Frames</span>
                              <span className="text-xs font-black text-white">{project.scenes.length}</span>
                            </div>
-                           <div className="w-px h-4 bg-zinc-800 flex-shrink-0" />
-                           <div className="flex flex-col">
-                             <span className="text-[8px] text-zinc-600 font-black uppercase tracking-widest">Duration</span>
+                           <div className="flex flex-col items-center justify-center border-x border-white/5">
+                             <span className="text-[7px] text-zinc-600 font-black uppercase tracking-widest leading-none mb-1">Length</span>
                              <span className="text-xs font-black text-white">{project.length || (project.numParts ? project.numParts * project.partLength / 60 : 0)}m</span>
                            </div>
-                           <div className="w-px h-4 bg-zinc-800 flex-shrink-0" />
-                           <div className="flex flex-col">
-                             <span className="text-[8px] text-zinc-600 font-black uppercase tracking-widest">Voice</span>
-                             <span className="text-xs font-black text-white capitalize">{project.voice?.split('-')[0] || 'Default'}</span>
+                           <div className="flex flex-col items-center justify-center">
+                             <span className="text-[7px] text-zinc-600 font-black uppercase tracking-widest leading-none mb-1">Voice</span>
+                             <span className="text-[9px] font-black text-white truncate max-w-full px-1">{project.voice?.split('-')[0] || 'Default'}</span>
                            </div>
                         </div>
                       )}
-                    </div>
 
-                    <div className="flex items-center justify-between pt-4 border-t border-white/5 mt-auto">
-                      <div className="flex flex-col">
-                         <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Modified</p>
-                         <p className="text-[10px] font-bold text-white tabular-nums">
-                          {formatDate(project.createdAt)}
-                        </p>
-                      </div>
-                      
-                      <button
-                        onClick={() => navigate(`${project.type === 'reel' ? '/reel' : project.type === 'cine' ? '/cine' : '/thumb'}?projectId=${project.id}`)}
-                        className={cn(
-                          "flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-xl",
-                          project.status === 'completed' 
-                            ? "bg-zinc-800 text-white hover:bg-zinc-700 border border-white/5" 
-                            : "bg-white text-black hover:bg-orange-500 hover:text-white"
-                        )}
-                      >
-                        {project.status === 'completed' ? 'View Final' : 'Resume production'}
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {project.status === 'completed' && (
-                      <div className="mt-4 pt-3 border-t border-white/5">
-                        <div className="flex items-center justify-between">
-                           <p className="text-[8px] font-black text-red-500/80 uppercase tracking-widest flex items-center gap-1.5">
-                            <CloudLightning size={10} />
-                            Expiring in {getExpiresIn(project)}
+                      <div className="flex items-center justify-between pt-4 border-t border-white/5 mt-auto">
+                        <div className="flex flex-col">
+                           <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Modified</p>
+                           <p className="text-[10px] font-bold text-zinc-400 tabular-nums">
+                            {formatDate(project.createdAt)}
                           </p>
                         </div>
+                        
+                        <button
+                          onClick={() => navigate(`${project.type === 'reel' ? '/reel' : project.type === 'cine' ? '/cine' : '/thumb'}?projectId=${project.id}`)}
+                          className={cn(
+                            "flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 shadow-xl",
+                            project.status === 'completed' 
+                              ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-white/5" 
+                              : "bg-white text-black hover:bg-orange-500 hover:text-white"
+                          )}
+                        >
+                          {project.status === 'completed' ? 'Build Final' : 'Resume production'}
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                    )}
+
+                      {project.status === 'completed' && (
+                        <div className="mt-4 pt-3 border-t border-white/5">
+                          <div className="flex items-center justify-between">
+                             <p className="text-[8px] font-black text-red-500/80 uppercase tracking-widest flex items-center gap-1.5 font-mono">
+                              <CloudLightning size={10} />
+                              Expiring in {getExpiresIn(project)}
+                            </p>
+                            <p className="text-[8px] font-black text-zinc-700 uppercase tracking-widest">WSID: {project.id.slice(0,8)}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Active Pulse indicator */}
                     {project.status === 'processing' && (
