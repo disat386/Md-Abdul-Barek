@@ -422,6 +422,20 @@ export default function ReelAura({ profile }: { profile: any }) {
 
   const handleGenerateVisuals = async () => {
     if (scenes.length === 0) return;
+
+    // Fast transition if all scenes already have images
+    const hasAnyMissing = scenes.some(s => !s.imageUrl || s.status.visual !== 'done');
+    if (!hasAnyMissing) {
+      setStatusMessage('Storyboard already perfected! Moving to Production...');
+      setProgress(100);
+      setTimeout(() => {
+        setIsLoading(false);
+        setActiveStep('video');
+        setStatusMessage('');
+      }, 800);
+      return;
+    }
+
     setIsLoading(true);
     setProgress(0);
     setError("");
@@ -431,7 +445,7 @@ export default function ReelAura({ profile }: { profile: any }) {
       if (!hasCredits) throw new Error('Insufficient credits.');
 
       const totalScenes = scenes.length;
-      let completedCount = 0;
+      let completedCount = scenes.filter(s => s.imageUrl && s.status.visual === 'done').length;
 
       // Controlled parallelism (Concurrency 5) for Reels to ensure high-speed but stable production
       const CONCURRENCY = 5;
@@ -443,7 +457,6 @@ export default function ReelAura({ profile }: { profile: any }) {
           const index = batchIndices[batchIdx];
           
           if (scene.imageUrl && scene.status.visual === 'done') {
-            completedCount++;
             return;
           }
 
@@ -499,13 +512,7 @@ export default function ReelAura({ profile }: { profile: any }) {
       while (rescuePasses < MAX_RESCUE_PASSES) {
         // Check for missing images using a functional update to get freshest current state
         let currentScenes: Scene[] = [];
-        await new Promise<void>(resolve => {
-          setScenes(s => {
-            currentScenes = s;
-            resolve();
-            return s;
-          });
-        });
+        setScenes(s => { currentScenes = s; return s; });
 
         const failedIndices = currentScenes
           .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
@@ -514,7 +521,7 @@ export default function ReelAura({ profile }: { profile: any }) {
         if (failedIndices.length === 0) break;
         
         rescuePasses++;
-        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} frames...`);
+        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} items...`);
         
         for (const idx of failedIndices) {
           try {
@@ -537,26 +544,23 @@ export default function ReelAura({ profile }: { profile: any }) {
       }
 
       // Final status and transition blocker - Get latest data
-      let currentScenes: Scene[] = [];
-      setScenes(s => {
-        currentScenes = s;
-        return s;
-      });
+      let finalScenes: Scene[] = [];
+      setScenes(s => { finalScenes = s; return s; });
 
-      const finalMissing = currentScenes.some(s => !s.imageUrl);
+      const finalMissing = finalScenes.some(s => !s.imageUrl);
 
       // CRITICAL: Ensure loading is cleared IMMEDIATELY when work is done
       setIsLoading(false);
 
-      if (finalMissing) {
-        setStatusMessage('Reel ready with some failed frames. Please regenerate failed items.');
-      } else {
+      if (!finalMissing) {
         setStatusMessage('Storyboard Perfected!');
         setProgress(100);
-        // Transition for better UX
         setTimeout(() => {
           setActiveStep('video');
-        }, 800);
+          setStatusMessage('');
+        }, 1000);
+      } else {
+        setStatusMessage('Reel ready with some failed frames. Please regenerate failed items.');
       }
     } catch (err: any) {
       setError(err.message);
@@ -823,12 +827,29 @@ export default function ReelAura({ profile }: { profile: any }) {
           setFullScript(reconstructed);
         }
         
-        // Auto-resume logic
         if (data.status === 'processing') {
+          // Determine which step to resume based on missing data
           setTimeout(() => {
-             if (data.activeStep === 'visuals') handleGenerateVisuals();
+             if (data.activeStep === 'visuals') {
+                const missingAny = data.scenes?.some((s: any) => !s.imageUrl);
+                if (missingAny) handleGenerateVisuals();
+                else { 
+                  setIsLoading(false);
+                  setStatusMessage('Production Synchronized');
+                  setTimeout(() => setStatusMessage(''), 2000);
+                }
+             }
              else if (data.activeStep === 'voice') handleGenerateVoice();
+             else {
+               setIsLoading(false);
+               setStatusMessage('Workspace Restored');
+               setTimeout(() => setStatusMessage(''), 2000);
+             }
           }, 1000);
+        } else {
+          setIsLoading(false);
+          setStatusMessage('Workspace Restored');
+          setTimeout(() => setStatusMessage(''), 2000);
         }
       }
     } catch (e) {
