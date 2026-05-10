@@ -123,8 +123,27 @@ export async function exportToVideo(
           const img = new Image();
           img.crossOrigin = "anonymous";
           const loadPromise = new Promise<void>((res, rej) => {
-            img.onload = () => res();
-            img.onerror = rej;
+            img.onload = () => {
+              // Test if image taints canvas
+              try {
+                const testCanvas = document.createElement('canvas');
+                testCanvas.width = 1;
+                testCanvas.height = 1;
+                const tCtx = testCanvas.getContext('2d');
+                if (tCtx) {
+                  tCtx.drawImage(img, 0, 0, 1, 1);
+                  testCanvas.toDataURL(); // Throws if tainted
+                }
+                res();
+              } catch (e) {
+                console.warn("Auurio: Image taints canvas, export might fail", url);
+                res(); // Still resolve but we know it might be problematic
+              }
+            };
+            img.onerror = (e) => {
+               console.warn(`Auurio: Image load fail on attempt ${j+1}`, url);
+               rej(e);
+            };
             const timeout = setTimeout(() => rej(new Error("Timeout")), 20000);
             img.src = url; 
             return () => clearTimeout(timeout);
@@ -179,8 +198,14 @@ export async function exportToVideo(
   };
 
   const mimeType = getSupportedMimeType();
+  console.log("Selected Production MIME Type:", mimeType);
+  
+  if (!mimeType) {
+    throw new Error("Your browser does not support any compatible video recording formats.");
+  }
+
   const recorder = new MediaRecorder(combinedStream, {
-    mimeType: mimeType || undefined,
+    mimeType,
     videoBitsPerSecond: 8000000
   });
 
@@ -196,42 +221,62 @@ export async function exportToVideo(
       resolve(blob);
     };
 
-    recorder.onerror = reject;
+    recorder.onerror = (e) => {
+      console.error("MediaRecorder error:", e);
+      reject(new Error(`Recording error: ${e.type}`));
+    };
 
     // Start Audio Playback Sequence
     let playStartTime = 0;
     
     const startRecording = async () => {
       try {
+        console.log("Auurio: Initializing production tracks...");
         await audioContext.resume();
         
         // Schedule all buffers
         if (useMultiAudio) {
+          let loadedCount = 0;
           audioBuffers.forEach((buffer, i) => {
             if (buffer) {
               const source = audioContext.createBufferSource();
               source.buffer = buffer;
               source.connect(audioDestination);
-              // Commented out to prevent audio playing during export
-              // source.connect(audioContext.destination);
               source.start(audioContext.currentTime + sceneStartTimes[i]);
+              loadedCount++;
             }
           });
+          console.log(`Auurio: Scheduled ${loadedCount} audio segments`);
         } else if (audioBuffers[0]) {
           const source = audioContext.createBufferSource();
           source.buffer = audioBuffers[0];
           source.connect(audioDestination);
-          // Commented out to prevent audio playing during export
-          // source.connect(audioContext.destination);
           source.start(audioContext.currentTime);
+          console.log("Auurio: Scheduled master master track");
         }
 
-        recorder.start();
+        // Check if stream is active
+        if (!combinedStream.active) {
+          throw new Error("Target stream is inactive. Check camera/audio permissions.");
+        }
+
+        console.log("Auurio: Starting MediaRecorder...");
+        recorder.start(1000); 
         playStartTime = performance.now();
+        
+        // Safety timeout to prevent infinite hanging
+        const maxDuration = (totalDuration + 15) * 1000;
+        setTimeout(() => {
+          if (recorder.state === 'recording') {
+            console.warn("Auurio: Production auto-stopped after timeout safeguard");
+            recorder.stop();
+          }
+        }, maxDuration);
+
         render();
       } catch (e) {
-        console.error("Video production startup failed:", e);
-        reject(e);
+        console.error("Auurio: Production failure:", e);
+        reject(new Error(`Production failed: ${e instanceof Error ? e.message : 'Unknown error'}`));
       }
     };
 

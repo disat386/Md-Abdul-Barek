@@ -1109,7 +1109,67 @@ export default function ReelAura({ profile }: { profile: any }) {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 pb-24 md:pb-8">
+    <div className="min-h-screen bg-black overflow-hidden relative">
+      {/* Global Export Status Overlay */}
+      <AnimatePresence>
+        {isExporting && exportProgress && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[999] bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center"
+          >
+            <motion.div 
+              animate={{ scale: [1, 1.2, 1], opacity: [0.1, 0.2, 0.1] }}
+              transition={{ duration: 4, repeat: Infinity }}
+              className="absolute w-[600px] h-[600px] bg-red-600/20 rounded-full blur-[100px]"
+            />
+            
+            <div className="relative z-10 w-full max-w-sm space-y-6">
+              <Download className="w-12 h-12 text-red-600 mx-auto animate-bounce" />
+              <div className="space-y-1">
+                <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">Encoding Production</h2>
+                <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-relaxed">
+                  {exportProgress.status}
+                </p>
+              </div>
+              
+              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                <motion.div 
+                  className="h-full bg-red-600"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${exportProgress.progress}%` }}
+                />
+              </div>
+              <p className="text-[9px] text-zinc-600 font-medium italic">Please stay on this tab while we render your cinematic master.</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Error Alert */}
+      <AnimatePresence>
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-md px-4"
+          >
+            <div className="bg-red-600/90 backdrop-blur-md text-white p-4 rounded-2xl shadow-2xl flex items-start gap-4">
+               <div className="p-2 bg-white/10 rounded-xl">
+                 <X size={20} className="cursor-pointer" onClick={() => setError('')} />
+               </div>
+               <div className="flex-1">
+                 <h4 className="text-xs font-black uppercase tracking-tighter">System Alert</h4>
+                 <p className="text-[10px] font-bold opacity-90 leading-relaxed">{error}</p>
+               </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 pb-24 md:pb-8 relative z-10">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6">
         <div className="space-y-2 md:space-y-3">
@@ -2091,6 +2151,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                   )}
               </div>
            </div>
+          </div>
         </div>
       </div>
     </div>
