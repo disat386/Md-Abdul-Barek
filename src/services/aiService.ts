@@ -370,7 +370,15 @@ class AIService {
     for (let i = 0; i < chunks.length; i += concurrencyLimit) {
       const batch = chunks.slice(i, i + concurrencyLimit);
       const batchResults = await Promise.all(batch.map(async (chunk, batchIdx) => {
-        const result = await this.generateSingleAudioChunk(chunk, voiceId, language, i + batchIdx + 1, chunks.length);
+        const result = await this.generateSingleAudioChunk(
+          chunk, 
+          voiceId, 
+          language, 
+          i + batchIdx + 1, 
+          chunks.length,
+          options.pitch,
+          options.speed
+        );
         reportProgress();
         return result;
       }));
@@ -607,7 +615,15 @@ class AIService {
   private primaryExhaustedUntil = 0;
   private secondaryExhaustedUntil = 0;
 
-  private async generateSingleAudioChunk(text: string, voiceId: string, language: string, current: number, total: number): Promise<{ url: string, pcm: string, mimeType: string }> {
+  private async generateSingleAudioChunk(
+    text: string, 
+    voiceId: string, 
+    language: string, 
+    current: number, 
+    total: number, 
+    pitch?: number, 
+    speed?: number
+  ): Promise<{ url: string, pcm: string, mimeType: string }> {
     let attempts = 0;
     const maxAttempts = 2; 
     let lastError: any = null;
@@ -658,10 +674,21 @@ class AIService {
               };
               const voiceName = voiceNameMap[voiceId] || 'Puck';
               
-              // Enhanced prompt for realistic multi-language narration
-              const narrationPrompt = `Narrate this text naturally in ${language} with expressive tone and proper pacing. Text: ${text}`;
+              // Enhanced prompt for realistic multi-language narration with style support
+              const speedLabel = speed ? (speed > 1.3 ? "very fast" : speed > 1.1 ? "fast" : speed < 0.7 ? "very slow" : speed < 0.9 ? "slow" : "normal") : "normal";
+              const pitchLabel = pitch ? (pitch > 1.3 ? "very high-pitched" : pitch > 1.1 ? "high-pitched" : pitch < 0.7 ? "very deep" : pitch < 0.9 ? "deep" : "natural") : "natural";
               
-              console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id || 'PRIMARY'} on ${modelId}...`);
+              const narrationPrompt = `TASK: Narrate the following text in ${language}.
+STYLE:
+- Tone: ${pitchLabel}
+- Pace: ${speedLabel}
+- Voice: ${voiceName}
+- Delivery: Expressive, cinematic, and professional.
+
+TEXT TO NARRATE:
+${text}`;
+              
+              console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id || 'PRIMARY'} on ${modelId} (Tone: ${pitchLabel}, Speed: ${speedLabel})...`);
               
               const response = await entry.client.models.generateContent({
                 model: modelId,
@@ -671,7 +698,9 @@ class AIService {
                   speechConfig: {
                     voiceConfig: {
                       prebuiltVoiceConfig: {
-                        voiceName: voiceName
+                        voiceName: voiceName,
+                        pitch: pitch || 1.0,
+                        speakingRate: speed || 1.0
                       }
                     }
                   }

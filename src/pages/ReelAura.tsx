@@ -113,7 +113,7 @@ export default function ReelAura({ profile }: { profile: any }) {
   const [projectId, setProjectId] = useState<string | null>(null);
 
 
-  const isProjectLoading = useRef(true);
+  const isProjectLoading = useRef(false);
 
   const saveProjectState = async (updates: any = {}) => {
     if (isProjectLoading.current) return;
@@ -292,24 +292,39 @@ export default function ReelAura({ profile }: { profile: any }) {
       REMEMBER: In ${language}. No slow buildup. Absolute depth and length. Reach the ${isPartStory ? partLength + ' minute' : totalSeconds + 's'} target.` ;
 
       const generatedContent = await aiService.generateText(prompt, undefined, (status) => setStatusMessage(status));
+      if (!generatedContent) throw new Error("Auurio Engine returned empty content. Please try again.");
+      
       setFullScript(generatedContent);
       
-      const narrativeMatch = generatedContent.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/i);
-      const visualsBlock = generatedContent.match(/\[VISUALS\]([\s\S]*?)\[\/VISUALS\]/i);
-      
+      // Robust block extraction
       let finalNarration = "";
       let finalVisuals: string[] = [];
 
-      if (!narrativeMatch) {
-         finalNarration = generatedContent.split('[VISUALS]')[0].replace('[NARRATIVE]', '').trim();
-         const visualsPart = (generatedContent.split('[VISUALS]')[1] || '').replace('[/VISUALS]', '');
-         finalVisuals = visualsPart.split(/\[VISUAL\]/i).map(p => p.trim()).filter(p => p.length > 5);
+      const narrativeBlock = generatedContent.match(/\[NARRATIVE\]([\s\S]*?)\[\/NARRATIVE\]/i);
+      const visualsBlock = generatedContent.match(/\[VISUALS\]([\s\S]*?)\[\/VISUALS\]/i);
+
+      if (narrativeBlock) {
+        finalNarration = narrativeBlock[1].trim();
       } else {
-        finalNarration = narrativeMatch[1].trim();
-        finalVisuals = (visualsBlock ? visualsBlock[1] : '').split(/\[VISUAL\]/i).map(p => p.trim()).filter(p => p.length > 5);
+        // Fallback: take everything before visuals
+        finalNarration = generatedContent.split(/\[VISUALS\]/i)[0].replace(/\[NARRATIVE\]/gi, '').trim();
       }
 
-      processGeneratedContent(finalNarration, finalVisuals);
+      if (visualsBlock) {
+        finalVisuals = visualsBlock[1].split(/\[VISUAL\]/i).map(p => p.trim()).filter(p => p.length > 5);
+      } else {
+        // Fallback: search for visual markers anywhere
+        finalVisuals = generatedContent.split(/\[VISUAL\]/i).slice(1).map(p => p.trim().split(/\[\/VISUAL\]/i)[0]).filter(p => p.length > 5);
+      }
+
+      if (!finalNarration) {
+        throw new Error("Failed to extract story narrative. AI output format mismatch.");
+      }
+
+      const initialScenes = processGeneratedContent(finalNarration, finalVisuals, 0, true);
+      setScenes(initialScenes);
+      setImages(initialScenes.map(s => s.imageUrl));
+      setFullScript(finalNarration);
       
       await creditService.deduct(profile.uid, CREDIT_COSTS.STORY_GENERATION, 'STORY_GENERATION');
 
@@ -325,7 +340,7 @@ export default function ReelAura({ profile }: { profile: any }) {
         progress: 0,
         activeStep: 'editor',
         fullScript: finalNarration,
-        scenes: processGeneratedContent(finalNarration, finalVisuals, 0, true),
+        scenes: initialScenes,
         language,
         length,
         theme,
@@ -341,11 +356,13 @@ export default function ReelAura({ profile }: { profile: any }) {
 
       setProgress(100);
       setStatusMessage('Viral Narrative Ready!');
+      setIsLoading(false);
       setActiveStep('editor');
     } catch (err: any) {
-      setError(err.message);
-    } finally {
+      console.error("Story Generation Failure:", err);
+      setError(err.message || "Failed to generate viral story.");
       setIsLoading(false);
+    } finally {
       setTimeout(() => setStatusMessage(''), 3000);
     }
   };
@@ -473,23 +490,26 @@ export default function ReelAura({ profile }: { profile: any }) {
   };
 
   const handleGenerateVoice = async () => {
-    if (scenes.length === 0) return;
+    if (scenes.length === 0) {
+      setError("No scenes found to narrate. Please generate a script first.");
+      return;
+    }
+    setError(null);
     setIsLoading(true);
     setProgress(0);
-    setError(null);
-    setAudioUrl("");
+    setStatusMessage("Initializing Neural Voice Engine...");
     saveProjectState({ status: 'processing' });
 
     try {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
-      setStatusMessage("EPISODIC SYNTHESIS: High-Impact Neural Narrator mastering by parts...");
-      
-      if (!fullScript || fullScript.length < 10) {
+      if (!fullScript || fullScript.trim().length < 10) {
         throw new Error("Viral script is missing or too short. Please refine in the editor.");
       }
 
+      setStatusMessage("EPISODIC SYNTHESIS: High-Impact Neural Narrator mastering...");
+      
       const partRegex = /\[PART (\d+) START\]([\s\S]*?)\[PART \1 END\]/gi;
       const partMatches = Array.from(fullScript.matchAll(partRegex));
       
@@ -502,10 +522,10 @@ export default function ReelAura({ profile }: { profile: any }) {
           const partIdx = parseInt(m[1]);
           const rawContent = m[2].trim();
           const cleanPartText = rawContent
-            .replace(/\[HOOK\]|\[\/HOOK\]|\[NARRATION\]|\[\/NARRATION\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '')
+            .replace(/\[PART \d+ START\]|\[PART \d+ END\]|\[HOOK\]|\[\/HOOK\]|\[NARRATION\]|\[\/NARRATION\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '')
             .trim();
           
-          if (!cleanPartText) continue;
+          if (!cleanPartText || cleanPartText.length < 2) continue;
 
           setStatusMessage(`Synthesizing Part ${partIdx}/${partMatches.length}...`);
           const res = await aiService.generateAudio(cleanPartText, voice, language, {
@@ -524,13 +544,12 @@ export default function ReelAura({ profile }: { profile: any }) {
           }
         }
 
-        if (partAudios.length === 0) throw new Error("Voice synthesis failure for parts.");
+        if (partAudios.length === 0) throw new Error("Voice synthesis failure for parts. Try again or check your script.");
 
         // Assign part-specific audio to scenes
         setScenes(prev => prev.map(s => {
           const partAudio = partAudios.find(pa => pa.index === s.partIndex);
           if (partAudio) {
-            // Count scenes in this part to distribute duration
             const scenesInPart = prev.filter(ps => ps.partIndex === s.partIndex);
             const totalCharsInPart = scenesInPart.reduce((acc, curr) => acc + curr.narration.length, 0) || 1;
             const weight = s.narration.length / totalCharsInPart;
@@ -545,25 +564,27 @@ export default function ReelAura({ profile }: { profile: any }) {
           return s;
         }));
 
-        // For the main player, we'll use the first part's audio as a placeholder or we might need to handle multi-audio player
         setAudioUrl(partAudios[0].url);
 
       } else {
         // Single cohesive story synthesis
         const cleanScript = fullScript.replace(/\[PART \d+ START\]|\[PART \d+ END\]|\[NARRATION\]|\[\/NARRATION\]|\[HOOK\]|\[\/HOOK\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '').trim();
+        setStatusMessage("Synthesizing Continuous Viral Narrative...");
+        
         const res = await aiService.generateAudio(cleanScript, voice, language, {
           pitch: voiceTone,
           speed: voiceSpeed,
           onProgress: (p) => setProgress(p)
         });
         
-        if (!res.url) throw new Error("Voice synthesis failure.");
+        if (!res.url) throw new Error("Neural synthesis returned empty audio. Please retry.");
         setAudioUrl(res.url);
 
         const audio = new Audio(res.url);
         const totalDuration = await new Promise<number>((resolve) => {
           audio.onloadedmetadata = () => resolve(audio.duration);
-          setTimeout(() => resolve(fullScript.length * 0.1), 5000);
+          audio.onerror = () => resolve(cleanScript.length * 0.1);
+          setTimeout(() => resolve(cleanScript.length * 0.1), 5000);
         });
 
         const totalChars = scenes.reduce((sum, s) => sum + s.narration.length, 0) || 1;
@@ -581,10 +602,10 @@ export default function ReelAura({ profile }: { profile: any }) {
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION, 'VOICE_SYNTHESIS');
       setProgress(100);
-      setStatusMessage('Part-wise Audio Mastered!');
-      setTimeout(() => setActiveStep('visuals'), 500);
+      setStatusMessage('Voice Mastering Complete!');
+      setTimeout(() => setActiveStep('visuals'), 800);
     } catch (err: any) {
-      console.error("Episodic synthesis error:", err);
+      console.error("Narration synthesis failed:", err);
       setError(err.message || "Synthesis failure.");
     } finally {
       setIsLoading(false);
@@ -622,6 +643,7 @@ export default function ReelAura({ profile }: { profile: any }) {
       setProgress(100);
       setTimeout(() => {
         setIsLoading(false);
+        setActiveStep('video');
         handleAssembleVideo();
         setStatusMessage('');
       }, 500);
@@ -765,6 +787,7 @@ export default function ReelAura({ profile }: { profile: any }) {
         }
 
         setIsLoading(false);
+        setActiveStep('video');
         setTimeout(() => {
           handleAssembleVideo();
           setStatusMessage('');
@@ -1087,6 +1110,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     const params = new URLSearchParams(window.location.search);
     const pid = params.get('projectId');
     if (pid) {
+      isProjectLoading.current = true;
       // Use setTimeout to avoid synchronous state update in effect
       const timer = setTimeout(() => {
         loadProject(pid);
@@ -1872,12 +1896,16 @@ export default function ReelAura({ profile }: { profile: any }) {
                                     <span className="text-xl font-black text-red-500 italic">{pNum}</span>
                                   </div>
                                   <div className="flex-1 text-center sm:text-left">
-                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1 italic">PART {pNum} MASTER</h4>
-                                    <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Curiosity driven neural narration</p>
+                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1 italic">{isPartStory ? `PART ${pNum} MASTER` : 'FULL REEL MASTER'}</h4>
+                                    <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Neural Narration Audio</p>
                                   </div>
-                                  {pAudio && pAudio !== 'READY' && pAudio !== 'MULTI_SCENE_AUDIO' && pAudio !== '' ? (
+                                  {pAudio && pAudio !== '' && pAudio !== 'READY' ? (
                                     <div className="w-full sm:w-[240px]">
-                                      <audio src={pAudio} controls className="w-full h-8 invert grayscale opacity-80 hover:opacity-100 transition-opacity" />
+                                      <audio 
+                                        src={pAudio === 'MULTI_SCENE_AUDIO' ? audioUrl : pAudio} 
+                                        controls 
+                                        className="w-full h-8 invert grayscale opacity-80 hover:opacity-100 transition-opacity" 
+                                      />
                                     </div>
                                   ) : (
                                     <div className="flex items-center gap-2 text-zinc-600">

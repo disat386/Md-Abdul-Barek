@@ -385,6 +385,8 @@ export default function CineAura({ profile }: { profile: any }) {
       }
 
       const res = await aiService.generateAudio(fullScript, voice, language, {
+        pitch: voiceTone,
+        speed: voiceSpeed,
         onProgress: (p) => setProgress(p)
       });
       
