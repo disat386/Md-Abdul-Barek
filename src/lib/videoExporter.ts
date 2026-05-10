@@ -229,17 +229,27 @@ export async function exportToVideo(
         const sDur = sceneEnd - sceneStartTime;
         const sceneProgress = Math.min((time - sceneStartTime) / sDur, 1);
         
-        const moveType = activeIndex % 6;
-        let scale = 1.2;
+        const moveType = activeIndex % 8;
+        let scale = 1.25;
         let xOffset = 0;
         let yOffset = 0;
         
-        if (moveType === 0) scale = 1.05 + (sceneProgress * 0.15);
-        else if (moveType === 1) scale = 1.2 - (sceneProgress * 0.15);
-        else if (moveType === 2) { xOffset = -40 + (sceneProgress * 80); }
-        else if (moveType === 3) { xOffset = 40 - (sceneProgress * 80); }
-        else if (moveType === 4) { xOffset = -30 + (sceneProgress * 60); yOffset = -30 + (sceneProgress * 60); }
-        else { xOffset = 30 - (sceneProgress * 60); yOffset = 30 - (sceneProgress * 60); }
+        // Reel Energy: Subtle impact shake at scene start
+        let shake = 0;
+        if (sceneProgress < 0.12) {
+          shake = Math.sin(sceneProgress * 80) * 8 * (1 - (sceneProgress / 0.12));
+        }
+
+        if (moveType === 0) scale = 1.05 + (sceneProgress * 0.25); // Intense zoom in
+        else if (moveType === 1) scale = 1.3 - (sceneProgress * 0.25); // Intense zoom out
+        else if (moveType === 2) { xOffset = -60 + (sceneProgress * 120); scale = 1.15; } // Fast pan
+        else if (moveType === 3) { xOffset = 60 - (sceneProgress * 120); scale = 1.15; } // Fast pan
+        else if (moveType === 4) { yOffset = -40 + (sceneProgress * 80); scale = 1.2; } // Vertical pan
+        else if (moveType === 5) { yOffset = 40 - (sceneProgress * 80); scale = 1.2; } // Vertical pan
+        else if (moveType === 6) { xOffset = -40 + (sceneProgress * 80); yOffset = -40 + (sceneProgress * 80); scale = 1.3; }
+        else { xOffset = 40 - (sceneProgress * 80); yOffset = 40 - (sceneProgress * 80); scale = 1.3; }
+
+        xOffset += shake;
 
         const drawWidth = width * scale;
         const drawHeight = height * scale;

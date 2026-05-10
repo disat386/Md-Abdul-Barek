@@ -6,6 +6,8 @@
   
   --color-zinc-950: #09090b;
   --color-orange-500: #f97316;
+  
+  --animate-spin-slow: spin 3s linear infinite;
 }
 
 @layer base {

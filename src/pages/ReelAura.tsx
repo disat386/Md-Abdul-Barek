@@ -20,7 +20,9 @@ import {
   ArrowUp,
   ArrowDown,
   RefreshCw,
-  Plus
+  Plus,
+  Layout,
+  CheckCircle2
 } from 'lucide-react';
 import { aiService } from '../services/aiService';
 import { creditService, CREDIT_COSTS } from '../services/creditService';
@@ -80,7 +82,7 @@ export default function ReelAura({ profile }: { profile: any }) {
   const [length, setLength] = useState(1); // Minutes (1-10)
   const [isPartStory, setIsPartStory] = useState(false);
   const [numParts, setNumParts] = useState(3);
-  const [partLength, setPartLength] = useState(60); // Seconds
+  const [partLength, setPartLength] = useState(1); // Minutes
   
   const [language, setLanguage] = useState<'English' | 'Hindi' | 'Bangla'>('English');
   const [voice, setVoice] = useState(VOICES.English[0].id);
@@ -134,6 +136,8 @@ export default function ReelAura({ profile }: { profile: any }) {
         isPartStory,
         numParts,
         partLength,
+        videoUrl,
+        currentPreviewPart,
         updatedAt: serverTimestamp(),
         ...updates
       });
@@ -146,7 +150,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     if (!isProjectLoading.current && projectId && (scenes.length > 0 || activeStep !== 'script')) {
       saveProjectState();
     }
-  }, [scenes, activeStep, fullScript, topic, voice, theme, isPartStory, numParts, partLength, audioUrl]);
+  }, [scenes, activeStep, fullScript, topic, voice, theme, isPartStory, numParts, partLength, audioUrl, videoUrl, currentPreviewPart]);
   
   useEffect(() => {
     return () => aiService.stopSpeaking();
@@ -154,6 +158,36 @@ export default function ReelAura({ profile }: { profile: any }) {
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+
+  const performVideoExport = async (targetPartIndex?: number) => {
+    const workingScenes = targetPartIndex 
+      ? scenes.filter(s => s.partIndex === targetPartIndex)
+      : scenes;
+
+    if (workingScenes.length === 0) throw new Error("No scenes found for this part.");
+
+    // Check if scenes have individual audio or we need to use a master chunk
+    const firstAudio = workingScenes[0].audioUrl;
+    const effectiveAudioUrl = (firstAudio && firstAudio !== 'MULTI_SCENE_AUDIO') ? firstAudio : audioUrl;
+
+    const videoBlob = await exportToVideo(workingScenes, effectiveAudioUrl, {
+      aspectRatio: 'reel',
+      onProgress: (p) => setExportProgress(p)
+    });
+    
+    const url = URL.createObjectURL(videoBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    const filename = targetPartIndex 
+      ? `Auurio_Reel_Part${targetPartIndex}_${Date.now()}.webm`
+      : `Auurio_Full_Reel_${Date.now()}.webm`;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    await creditService.deduct(profile.uid, CREDIT_COSTS.VIDEO_PRODUCTION, 'REEL_EXPORT');
+  };
 
   const handleExportVideo = async (targetPartIndex?: number) => {
     if (scenes.length === 0) return;
@@ -163,38 +197,51 @@ export default function ReelAura({ profile }: { profile: any }) {
     setExportProgress({ progress: 0, status: statusLabel });
     
     try {
-      const workingScenes = targetPartIndex 
-        ? scenes.filter(s => s.partIndex === targetPartIndex)
-        : scenes;
-
-      if (workingScenes.length === 0) throw new Error("No scenes found for this part.");
-
-      // Check if scenes have individual audio or we need to use a master chunk
-      const firstAudio = workingScenes[0].audioUrl;
-      const effectiveAudioUrl = (firstAudio && firstAudio !== 'MULTI_SCENE_AUDIO') ? firstAudio : audioUrl;
-
-      const videoBlob = await exportToVideo(workingScenes, effectiveAudioUrl, {
-        aspectRatio: 'reel',
-        onProgress: (p) => setExportProgress(p)
-      });
-      
-      const url = URL.createObjectURL(videoBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      const filename = targetPartIndex 
-        ? `Auurio_Reel_Part${targetPartIndex}_${Date.now()}.webm`
-        : `Auurio_Full_Reel_${Date.now()}.webm`;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      await creditService.deduct(profile.uid, CREDIT_COSTS.VIDEO_PRODUCTION, 'REEL_EXPORT');
+      await performVideoExport(targetPartIndex);
     } catch (err: any) {
       console.error("Reel Export error:", err);
       setError("Export failed: " + err.message);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleExportAllParts = async () => {
+    if (!isPartStory) return;
+    
+    const readyParts = Array.from({ length: numParts })
+      .map((_, i) => i + 1)
+      .filter(pNum => {
+        const pScenes = scenes.filter(s => s.partIndex === pNum);
+        return pScenes.length > 0 && pScenes.every(s => s.imageUrl && s.status.visual === 'done');
+      });
+
+    if (readyParts.length === 0) {
+      setError("No production-ready parts found to export.");
+      return;
+    }
+
+    setIsExporting(true);
+    setStatusMessage(`Initializing batch export of ${readyParts.length} parts...`);
+    
+    try {
+      for (let i = 0; i < readyParts.length; i++) {
+        const pNum = readyParts[i];
+        setExportProgress({ progress: 0, status: `Batch Export: Part ${pNum} (${i+1}/${readyParts.length})` });
+        await performVideoExport(pNum);
+        // Safety delay to prevent browser download restrictions/UI freezing
+        if (i < readyParts.length - 1) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      setStatusMessage("All deliverables exported successfully!");
+    } catch (err: any) {
+      console.error("Batch Export error:", err);
+      setError("Batch export failed: " + err.message);
+    } finally {
+      setIsExporting(false);
+      setExportProgress(null);
+      setTimeout(() => setStatusMessage(''), 4000);
     }
   };
 
@@ -209,27 +256,27 @@ export default function ReelAura({ profile }: { profile: any }) {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.STORY_GENERATION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
-      const totalSeconds = isPartStory ? numParts * partLength : length * 60;
+      const totalSeconds = isPartStory ? numParts * partLength * 60 : length * 60;
       
       const prompt = `ACT AS A VIRAL SHORT-FORM RETENTION MASTER. 
       Your mission is to write an ultra-high-energy, fast-paced vertical storytelling script in ${language} about: ${topic}.
       
       RETENTION RULES (MANDATORY):
       - START WITH A JOLT. The first 2 seconds must be a "Pattern Interrupt" hook that makes scrolling impossible.
-      - PACING: Every sentence must hit like a hammer. No comma-heavy long sentences.
-      - CURIOSITY: Every line must answer one question but raise a bigger one.
-      - EMOTIONAL INTENSITY: Use strong words and sensory details.
+      - PACING: High-speed energetic delivery. Every sentence must be a punch. ABSOLUTELY NO FILLER.
+      - FAST TRANSITIONS: The story must move forward every 3-4 seconds.
+      - RETENTION LOOPS: End every small segment with a mystery.
       
       ${isPartStory ? `EPISODIC SYSTEM:
       DIVIDE INTO EXACTLY ${numParts} PARTS. 
-      Each part is ROUGHLY ${partLength} SECONDS.
+      Each part MUST BE DENSE and fill ROUGHLY ${partLength} MINUTE(S).
       
       STRICT TEMPLATE PER PART:
       [PART X START]
-      [HOOK] (A devastatingly engaging opening line. Max 5-7 words. Must re-hook viewer even if they just saw Part X-1) [/HOOK]
-      [NARRATION] (The meat of the story. High speed. Multiple revelations. At least 15-20 punchy lines to fill the ${partLength}s duration.) [/NARRATION]
-      [CLIFFHANGER] (A massive unanswered question or a "to be continued" twist that forces them to find the next part) [/CLIFFHANGER]
-      [PART X END]` : `CONTINUOUS RETENTION: Hook at 0s, Suspense peaks every 15s, Payoff at 45s, and a viral loop ending. Total duration: ${totalSeconds}s.`}
+      [HOOK] (A devastatingly engaging opening line that builds on the previous part's mystery. Max 5-7 words.) [/HOOK]
+      [NARRATION] (The core content. DENSE AND LONG. For a ${partLength} minute part, you MUST PROVIDE AT LEAST ${partLength * 35} PUNCHY SENTENCES. The pacing must be relentless.) [/NARRATION]
+      [CLIFFHANGER] (A massive unanswered question or a "to be continued" twist. End with a subtle, natural CTA like "You won't believe what happens in Part ${numParts > 1 ? '2' : 'X'}..." or "The reveal in the next part is insane...") [/CLIFFHANGER]
+      [PART X END]` : `CONTINUOUS RETENTION: Hook at 0s, Suspense peaks every 10s, Payoff at 45s, and a viral loop ending. Total duration: ${totalSeconds}s.`}
 
       OUTPUT FORMAT:
       [NARRATIVE]
@@ -237,12 +284,12 @@ export default function ReelAura({ profile }: { profile: any }) {
       [/NARRATIVE]
 
       [VISUALS]
-      Provide one [VISUAL] prompt per 6 seconds of story. 
+      Provide one [VISUAL] prompt per 3.5 seconds of story (approx. ${Math.ceil(totalSeconds / 3.5)} prompts total). 
       Prompts must be: 9:16 aspect ratio, cinematic, high-motion, realistic vertical footage descriptions.
-      Example: 1. [VISUAL] Extreme close up of sweat on a runner's face, cinematic lighting...
+      Example: 1. [VISUAL] Extreme close up of sweat on a runner's face, cinematic lighting, high motion blur...
       [/VISUALS]
 
-      REMENTER: In ${language}. No slow buildup. No unnecessary explanations. Just pure curiosity-driven momentum.`;
+      REMEMBER: In ${language}. No slow buildup. Absolute depth and length. Reach the ${isPartStory ? partLength + ' minute' : totalSeconds + 's'} target.` ;
 
       const generatedContent = await aiService.generateText(prompt, undefined, (status) => setStatusMessage(status));
       setFullScript(generatedContent);
@@ -324,9 +371,9 @@ export default function ReelAura({ profile }: { profile: any }) {
           const body = narrationMatch ? narrationMatch[1].trim() : "";
           const cliff = cliffMatch ? cliffMatch[1].trim() : "";
 
-          // Frame count logic: 1 frame every 6 seconds.
-          // For a 60s part, we want ~10 frames.
-          const targetFramesForPart = Math.ceil(partLength / 6);
+          // Frame count logic: 1 frame every 3.5 seconds.
+          // For a 1-minute part (60s), we want ~17 frames.
+          const targetFramesForPart = Math.ceil((partLength * 60) / 3.5);
           
           // Scene 1: Hook
           if (hook) {
@@ -378,7 +425,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     // Fallback if not part story or parsing failed
     if (parsedScenes.length === 0) {
       const totalSeconds = length * 60;
-      const targetFrames = Math.max(visuals.length, Math.ceil(totalSeconds / 6));
+      const targetFrames = Math.max(visuals.length, Math.ceil(totalSeconds / 3.5));
       
       // Smart splitting based on sentence boundaries if possible
       const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g) || [text];
@@ -431,6 +478,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     setProgress(0);
     setError(null);
     setAudioUrl("");
+    saveProjectState({ status: 'processing' });
 
     try {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION);
@@ -461,6 +509,8 @@ export default function ReelAura({ profile }: { profile: any }) {
 
           setStatusMessage(`Synthesizing Part ${partIdx}/${partMatches.length}...`);
           const res = await aiService.generateAudio(cleanPartText, voice, language, {
+            pitch: voiceTone,
+            speed: voiceSpeed,
             onProgress: (p) => setProgress(Math.floor((i / partMatches.length) * 100) + Math.floor(p / partMatches.length))
           });
           
@@ -502,6 +552,8 @@ export default function ReelAura({ profile }: { profile: any }) {
         // Single cohesive story synthesis
         const cleanScript = fullScript.replace(/\[PART \d+ START\]|\[PART \d+ END\]|\[NARRATION\]|\[\/NARRATION\]|\[HOOK\]|\[\/HOOK\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '').trim();
         const res = await aiService.generateAudio(cleanScript, voice, language, {
+          pitch: voiceTone,
+          speed: voiceSpeed,
           onProgress: (p) => setProgress(p)
         });
         
@@ -580,6 +632,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     setProgress(0);
     setError("");
     setStatusMessage('Mastering visual aesthetic engine...');
+    saveProjectState({ status: 'processing' });
     try {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.IMAGE_GENERATION);
       if (!hasCredits) throw new Error('Insufficient credits.');
@@ -976,6 +1029,8 @@ export default function ReelAura({ profile }: { profile: any }) {
         if (data.numParts) setNumParts(data.numParts);
         if (data.partLength) setPartLength(data.partLength);
         if (data.audioUrl) setAudioUrl(data.audioUrl);
+        if (data.videoUrl) setVideoUrl(data.videoUrl);
+        if (data.currentPreviewPart) setCurrentPreviewPart(data.currentPreviewPart);
 
         // Fallback: Reconstruct script if missing
         if (!data.fullScript && data.scenes && data.scenes.length > 0) {
@@ -994,14 +1049,13 @@ export default function ReelAura({ profile }: { profile: any }) {
                   setIsLoading(false);
                   setStatusMessage('Production Synchronized');
                   handleAssembleVideo();
-                  setTimeout(() => setStatusMessage(''), 2000);
                 }
              } else if (data.activeStep === 'voice') {
                 handleGenerateVoice();
              } else {
-               setIsLoading(false);
-               setStatusMessage('Workspace Restored');
-               setTimeout(() => setStatusMessage(''), 2000);
+                setIsLoading(false);
+                setStatusMessage('Workspace Restored');
+                setTimeout(() => setStatusMessage(''), 2000);
              }
           }, 800);
         } else {
@@ -1048,15 +1102,31 @@ export default function ReelAura({ profile }: { profile: any }) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6">
         <div className="space-y-2 md:space-y-3">
-          <div className="flex items-center gap-2 md:gap-3">
-            <div className="p-2 md:p-3 bg-red-500/20 rounded-xl md:rounded-2xl">
-              <Video className="w-6 h-6 md:w-8 md:h-8 text-red-500" />
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 md:gap-3">
+              <div className="p-2 md:p-3 bg-red-500/20 rounded-xl md:rounded-2xl">
+                <Video className="w-6 h-6 md:w-8 md:h-8 text-red-500" />
+              </div>
+              <h1 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic line-clamp-1">ReelAura</h1>
             </div>
-            <h1 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic line-clamp-1">ReelAura</h1>
+            {projectId && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Workspace Live</span>
+              </div>
+            )}
           </div>
-          <p className="text-xs md:text-sm text-zinc-500 font-medium max-w-xl">
-            High-impact vertical content machine. Build viral Reels and Shorts in minutes.
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs md:text-sm text-zinc-500 font-medium max-w-xl">
+              High-impact vertical content machine. Build viral Reels and Shorts in minutes.
+            </p>
+            {projectId && topic && (
+              <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-white/5 rounded-2xl">
+                <Layout className="w-3 h-3 text-red-500" />
+                <span className="text-[10px] font-black text-white uppercase tracking-tighter max-w-[150px] truncate">{topic}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1137,26 +1207,36 @@ export default function ReelAura({ profile }: { profile: any }) {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest px-1">Sec / Part</label>
-                        <input 
-                          type="number" min="15" max="60" value={partLength || 15} 
+                        <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest px-1">Min / Part</label>
+                        <select 
+                          value={partLength || 1} 
                           onChange={(e) => setPartLength(parseInt(e.target.value))}
-                          className="w-full bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs text-white"
-                        />
+                          className="w-full bg-zinc-900 border border-white/5 rounded-xl px-3 py-2 text-xs text-white appearance-none"
+                        >
+                          {[1, 3, 5, 10].map(m => (
+                            <option key={m} value={m}>{m} min</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest px-1">Total Duration (Min)</label>
-                      <input 
-                        type="range" min="1" max="10" step="1" value={length || 1} 
-                        onChange={(e) => setLength(parseInt(e.target.value))}
-                        className="w-full accent-red-500"
-                      />
-                      <div className="flex justify-between text-[9px] font-bold text-zinc-500">
-                        <span>1 MIN</span>
-                        <span className="text-white">{length} MIN</span>
-                        <span>10 MIN</span>
+                      <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest px-1">Total Duration</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[1, 3, 5, 10].map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => setLength(m)}
+                            className={cn(
+                              "py-2 rounded-lg font-black text-[10px] uppercase transition-all",
+                              length === m 
+                                ? "bg-red-600 text-white shadow-lg shadow-red-600/20" 
+                                : "bg-black/40 border border-white/5 text-zinc-500 hover:text-zinc-400"
+                            )}
+                          >
+                            {m}m
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -1493,46 +1573,80 @@ export default function ReelAura({ profile }: { profile: any }) {
             )}
 
             {activeStep === 'video' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <button 
                   onClick={() => handleAssembleVideo()}
                   disabled={isLoading}
-                  className="w-full py-4 bg-green-500 text-black font-bold uppercase tracking-tighter flex items-center justify-center gap-2 rounded-2xl hover:bg-green-400 transition-all active:scale-95 disabled:opacity-50"
+                  className="w-full py-5 bg-gradient-to-r from-red-600 to-red-500 text-white font-black uppercase tracking-tighter flex items-center justify-center gap-3 rounded-[32px] hover:scale-105 transition-all active:scale-95 disabled:opacity-50 shadow-2xl shadow-red-600/20"
                 >
-                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <MonitorPlay className="w-5 h-5" />}
                   Review Full Production
                 </button>
 
                 {isPartStory && (
-                  <div className="pt-2 space-y-3">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Episodic Downloads</label>
-                    <div className="grid grid-cols-1 gap-2">
-                       {Array.from({ length: numParts }).map((_, i) => (
-                         <div key={i} className={cn(
-                           "group p-3 border rounded-xl flex items-center justify-between transition-all cursor-pointer",
-                           currentPreviewPart === i + 1 ? "bg-green-500/10 border-green-500/50" : "bg-white/5 border-white/10 hover:bg-white/10"
-                         )}>
-                            <div className="flex items-center gap-3 flex-1" onClick={() => setCurrentPreviewPart(i + 1)}>
-                               <div className={cn(
-                                 "w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs italic",
-                                 currentPreviewPart === i + 1 ? "bg-green-500 text-black" : "bg-green-500/10 text-green-500"
-                               )}>
-                                 {i + 1}
-                               </div>
-                               <div>
-                                 <h4 className="text-[10px] font-black text-white uppercase tracking-tighter">PART {i + 1}</h4>
-                                 <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Select to preview</p>
-                               </div>
-                            </div>
-                            <button 
-                              onClick={() => handleExportVideo(i + 1)}
-                              disabled={isExporting}
-                              className="p-2 bg-green-500/20 text-green-500 group-hover:bg-green-500 group-hover:text-black rounded-lg transition-all disabled:opacity-50"
-                            >
-                              <Download size={14} />
-                            </button>
-                         </div>
-                       ))}
+                  <div className="pt-4 space-y-4">
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Episodic Deliverables</label>
+                      </div>
+                      <button 
+                        onClick={handleExportAllParts}
+                        disabled={isExporting || isLoading}
+                        className="text-[10px] font-black text-white hover:scale-105 active:scale-95 uppercase tracking-widest flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-2 rounded-xl transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
+                      >
+                        <Download size={14} className={isExporting ? "animate-bounce" : ""} />
+                        Export All Parts
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                       {Array.from({ length: numParts }).map((_, i) => {
+                         const pNum = i + 1;
+                         const isReady = scenes.filter(s => s.partIndex === pNum).every(s => s.imageUrl && s.status.visual === 'done');
+                         
+                         return (
+                          <motion.div 
+                            key={i} 
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: i * 0.1 }}
+                            className={cn(
+                              "group p-4 bg-zinc-900 shadow-xl border rounded-[28px] flex items-center justify-between transition-all cursor-pointer",
+                              currentPreviewPart === pNum ? "border-red-600/50 bg-red-600/5" : "border-white/5 hover:border-white/10"
+                            )}
+                            onClick={() => setCurrentPreviewPart(pNum)}
+                          >
+                             <div className="flex items-center gap-4 flex-1">
+                                <div className={cn(
+                                  "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg italic transition-all",
+                                  currentPreviewPart === pNum ? "bg-red-600 text-white scale-110 shadow-lg shadow-red-600/30" : "bg-white/5 text-zinc-500"
+                                )}>
+                                  {pNum}
+                                </div>
+                                <div>
+                                  <h4 className="text-[11px] font-black text-white uppercase tracking-tighter">PART {pNum}</h4>
+                                  <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">{isReady ? 'Production Ready' : 'In Progress'}</p>
+                                </div>
+                             </div>
+                             
+                             <div className="flex items-center gap-2">
+                               {isReady && (
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleExportVideo(pNum);
+                                    }}
+                                    disabled={isExporting}
+                                    className="w-10 h-10 bg-red-600/10 text-red-500 flex items-center justify-center group-hover:bg-red-600 group-hover:text-white rounded-xl transition-all disabled:opacity-50"
+                                  >
+                                    <Download size={18} />
+                                  </button>
+                               )}
+                             </div>
+                          </motion.div>
+                         );
+                       })}
                     </div>
                   </div>
                 )}
@@ -1592,29 +1706,61 @@ export default function ReelAura({ profile }: { profile: any }) {
                   )}
 
                   {activeStep === 'editor' && (
-                    <div className="flex flex-col h-full gap-4 w-full">
+                    <div className="flex flex-col h-full gap-6 w-full">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">REEL SCRIPT MASTER</span>
+                          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">PRO EPISODIC STORYBOARD</span>
                         </div>
                         <span className="text-[10px] font-black text-red-500/50 uppercase tabular-nums tracking-widest">
-                          {fullScript.length} Characters | Viral High-Impact
+                          {fullScript.length} Characters | Retention Optimized
                         </span>
                       </div>
-                      <textarea 
-                        value={fullScript}
-                        onChange={(e) => setFullScript(e.target.value)}
-                        className="flex-1 w-full bg-black/40 border border-white/5 rounded-3xl p-8 text-xl md:text-2xl text-zinc-200 focus:text-white leading-relaxed font-bold outline-none focus:border-red-500/20 transition-all resize-none custom-scrollbar shadow-inner"
-                        placeholder="Refine your viral hook and story here..."
-                      />
-                      <div className="flex items-center justify-center gap-6 py-2 bg-black/20 border border-white/5 rounded-2xl">
+                      
+                      <div className="flex-1 overflow-y-auto space-y-8 pr-2 custom-scrollbar">
+                        {Array.from({ length: isPartStory ? numParts : 1 }).map((_, pIdx) => {
+                          const pNum = pIdx + 1;
+                          const partScenes = isPartStory ? scenes.filter(s => s.partIndex === pNum) : scenes;
+                          
+                          return (
+                            <div key={pNum} className="relative bg-zinc-900/50 border border-white/5 rounded-[32px] p-8 space-y-6">
+                              <div className="absolute -top-3 left-8 px-4 py-1 bg-red-600 text-white rounded-full flex items-center gap-2">
+                                <span className="text-[10px] font-black uppercase italic tracking-widest">PART {pNum}</span>
+                              </div>
+                              
+                              {partScenes.map((scene, sIdx) => (
+                                <div key={scene.id} className="group relative bg-black/40 border border-white/5 rounded-2xl p-6 hover:border-white/20 transition-all">
+                                  <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Frame {sIdx + 1}</span>
+                                      {scene.isHook && <span className="px-1.5 py-0.5 bg-yellow-400 text-black text-[7px] font-black uppercase rounded">Start Hook</span>}
+                                      {scene.isCliffhanger && <span className="px-1.5 py-0.5 bg-red-600 text-white text-[7px] font-black uppercase rounded">Cliffhanger</span>}
+                                    </div>
+                                  </div>
+                                  <textarea 
+                                    value={scene.narration}
+                                    onChange={(e) => {
+                                      const newScenes = [...scenes];
+                                      const idx = newScenes.findIndex(s => s.id === scene.id);
+                                      newScenes[idx].narration = e.target.value;
+                                      setScenes(newScenes);
+                                    }}
+                                    className="w-full bg-transparent border-none text-lg text-zinc-300 focus:text-white leading-relaxed font-bold outline-none resize-none h-auto min-h-[40px]"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-center gap-6 py-4 bg-black/40 border border-white/5 rounded-3xl">
                         <button onClick={() => aiService.speak(fullScript, language)} className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-500 hover:text-white transition-colors">
-                          <Volume2 size={14} /> Rehearsal Audio
+                          <Volume2 size={14} /> Full Rehearsal
                         </button>
                         <div className="w-px h-4 bg-zinc-800" />
                         <button onClick={() => setFullScript('')} className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-500 hover:text-red-500 transition-colors">
-                          <Trash2 size={14} /> Wipe Script
+                          <Trash2 size={14} /> Reset all
                         </button>
                       </div>
                     </div>
@@ -1622,156 +1768,173 @@ export default function ReelAura({ profile }: { profile: any }) {
 
                   {activeStep === 'voice' && (
                     <div className="w-full h-full flex flex-col items-center justify-center">
-                       <div className="w-full max-w-sm space-y-8 text-center">
-                         {audioUrl ? (
-                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="space-y-6">
-                              <div className="w-32 h-32 bg-orange-500/10 border border-orange-500/20 rounded-full flex items-center justify-center mx-auto relative group">
-                                 <div className="absolute inset-0 bg-orange-500/5 animate-ping rounded-full" />
-                                 <Volume2 className="w-12 h-12 text-orange-500 group-hover:scale-110 transition-transform" />
-                              </div>
-                              <div className="space-y-1">
-                                <h3 className="text-lg font-black text-white uppercase italic tracking-tighter">Audio Synchronized</h3>
-                                <p className="text-xs text-zinc-500 font-medium">Narrative audio is ready for visual pairing</p>
-                              </div>
-                              {(audioUrl && audioUrl !== 'READY' && audioUrl !== 'MULTI_SCENE_AUDIO' && audioUrl !== '') ? (
-                                <audio 
-                                  key={audioUrl}
-                                  controls 
-                                  src={audioUrl}
-                                  className="w-full custom-audio brightness-110"
-                                />
-                              ) : (
-                                <div className="w-full p-4 bg-zinc-800/50 rounded-xl border border-white/5 flex flex-col items-center justify-center gap-2">
-                                   <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                                     <Volume2 size={20} className="text-red-400 animate-pulse" />
-                                   </div>
-                                   <p className="text-[10px] font-black text-zinc-500 uppercase tracking-tighter">
-                                     {audioUrl === 'READY' ? 'Synthesized but no preview available' : 'Audio is being synchronized...'}
-                                   </p>
-                                </div>
-                              )}
-                              <button 
-                                onClick={() => setActiveStep('visuals')}
-                                className="w-full py-4 bg-zinc-900 border border-white/10 text-white font-black uppercase tracking-tighter rounded-2xl hover:bg-zinc-800"
-                              >
-                                Move to Frame Generation
-                              </button>
-                            </motion.div>
-                         ) : <Placeholder icon={Mic} text="Synthesized narration will appear here" />}
+                       <div className="w-full max-w-2xl space-y-12">
+                          <div className="text-center space-y-2">
+                             <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">Episodic Neural Sync</h3>
+                             <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Preview independent audio masters for each part</p>
+                          </div>
+
+                          <div className="grid gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                            {Array.from({ length: isPartStory ? numParts : 1 }).map((_, pIdx) => {
+                              const pNum = pIdx + 1;
+                              const pAudio = scenes.find(s => s.partIndex === pNum)?.audioUrl || audioUrl;
+                              
+                              return (
+                                <motion.div 
+                                  initial={{ opacity: 0, x: -20 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ delay: pIdx * 0.1 }}
+                                  key={pNum} 
+                                  className="bg-white/[0.03] border border-white/5 rounded-3xl p-6 flex flex-col sm:flex-row items-center gap-6 group hover:bg-white/[0.05] transition-all"
+                                >
+                                  <div className="w-16 h-16 bg-red-600/10 border border-red-600/20 rounded-2xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                    <span className="text-xl font-black text-red-500 italic">{pNum}</span>
+                                  </div>
+                                  <div className="flex-1 text-center sm:text-left">
+                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1 italic">PART {pNum} MASTER</h4>
+                                    <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Curiosity driven neural narration</p>
+                                  </div>
+                                  {pAudio && pAudio !== 'READY' && pAudio !== 'MULTI_SCENE_AUDIO' && pAudio !== '' ? (
+                                    <div className="w-full sm:w-[240px]">
+                                      <audio src={pAudio} controls className="w-full h-8 invert grayscale opacity-80 hover:opacity-100 transition-opacity" />
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2 text-zinc-600">
+                                      <Loader2 size={12} className="animate-spin" />
+                                      <span className="text-[9px] font-black uppercase tracking-widest">Processing...</span>
+                                    </div>
+                                  )}
+                                </motion.div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="pt-6 text-center">
+                            <button 
+                              onClick={() => setActiveStep('visuals')}
+                              className="px-12 py-5 bg-white text-black font-black uppercase tracking-tighter rounded-full hover:scale-105 active:scale-95 transition-all shadow-2xl"
+                            >
+                              Move to Visual Storyboarding
+                            </button>
+                          </div>
                        </div>
                     </div>
                   )}
 
                   {activeStep === 'visuals' && (
-                    <div className="w-full space-y-6">
-                       <div className="flex items-center justify-between px-1">
-                         <h3 className="text-xs font-black text-white uppercase tracking-widest italic">Visual Storyboard</h3>
-                         <div className="flex items-center gap-4">
-                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
-                              {scenes.filter(s => s.imageUrl && s.status.visual === 'done').length} / {scenes.length} Frames
-                            </span>
+                    <div className="w-full space-y-12 pb-20">
+                       <div className="flex items-center justify-between">
+                         <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">EPISODIC VISUAL PRODUCTION</h3>
+                         <div className="flex items-center gap-6">
+                            <div className="flex flex-col items-end">
+                              <span className="text-[10px] font-black text-white px-2 py-0.5 bg-red-600 rounded italic">LIVE PRODUCTION</span>
+                              <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                                {scenes.filter(s => s.imageUrl && s.status.visual === 'done').length} / {scenes.length} FRAMES
+                              </span>
+                            </div>
                             {scenes.some(s => s.status.visual === 'error') && (
                               <button 
                                 onClick={handleRetryFailedVisuals}
-                                disabled={isLoading}
-                                className="text-[10px] font-black text-orange-500 uppercase tracking-widest hover:text-orange-400 transition-colors flex items-center gap-1.5"
+                                className="flex items-center gap-2 p-2 bg-orange-500/10 text-orange-500 rounded-xl hover:bg-orange-500/20 transition-all"
                               >
-                                <RefreshCw size={10} className={isLoading ? "animate-spin" : ""} />
-                                Retry Failed
+                                <RefreshCw size={14} />
                               </button>
                             )}
-                          </div>
+                         </div>
                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
-                         {scenes.length > 0 ? scenes.map((scene, i) => (
-                           <motion.div 
-                             key={scene.id} 
-                             initial={{ opacity: 0, scale: 0.9 }}
-                             animate={{ opacity: 1, scale: 1 }}
-                             transition={{ delay: i * 0.1 }}
-                             className="aspect-[9/16] bg-zinc-900 rounded-2xl overflow-hidden border border-white/5 group relative"
-                           >
-                              {scene.imageUrl ? (
-                                <>
-                                  <img 
-                                    src={scene.imageUrl} 
-                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
-                                    referrerPolicy="no-referrer" 
-                                    crossOrigin="anonymous"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
-                                      if (target.src.includes('fallback=true')) {
-                                        target.src = aiService.generateImageUrl("Vertical cinematic social media professional masterpiece photography", 1024, 1792) + '&safety=final';
-                                      } else if (!target.src.includes('safety=final')) {
-                                        target.src = aiService.generateImageUrl(scene.visualPrompt, 1024, 1792) + '&fallback=true';
-                                      }
-                                    }}
-                                  />
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 gap-2">
-                                    <div className="flex flex-wrap gap-1 mb-1">
-                                      {scene.isHook && (
-                                        <span className="px-1.5 py-0.5 bg-yellow-400 text-black text-[7px] font-black uppercase rounded shadow-lg">Hook</span>
-                                      )}
-                                      {scene.isCliffhanger && (
-                                        <span className="px-1.5 py-0.5 bg-red-600 text-white text-[7px] font-black uppercase rounded shadow-lg">Cliffhanger</span>
-                                      )}
-                                    </div>
-                                    <span className="text-[10px] font-black text-white uppercase italic tracking-widest">Frame 0{i+1}</span>
-                                    <button 
-                                      onClick={() => handleRegenerateScene(i)}
-                                      disabled={isLoading}
-                                      className="w-full py-2 bg-white/20 hover:bg-white/40 rounded-xl text-white backdrop-blur-md transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase"
-                                    >
-                                      <RefreshCw size={12} className={isLoading ? "animate-spin" : ""} />
-                                      Retry
-                                    </button>
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900/50">
-                                   {scene.status.visual === 'error' ? (
-                                     <span className="text-[8px] font-black text-red-500 uppercase tracking-widest text-center">Failed</span>
-                                   ) : (
-                                     <>
-                                        <Loader2 size={24} className="text-red-500 animate-spin mb-2" />
-                                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest text-center">Capturing...</span>
-                                     </>
-                                   )}
-                                </div>
-                              )}
-                              
-                              {scene.imageUrl && watermark.enabled && (
-                                 <div 
-                                  className={cn(
-                                    "absolute pointer-events-none select-none px-4 py-2 drop-shadow-xl flex items-center justify-center",
-                                    watermark.position === 'top-left' && "top-0 left-0",
-                                    watermark.position === 'top-right' && "top-0 right-0",
-                                    watermark.position === 'bottom-left' && "bottom-0 left-0",
-                                    watermark.position === 'bottom-right' && "bottom-0 right-0",
-                                    watermark.position === 'center' && "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2",
-                                    watermark.position === 'bottom-center' && "bottom-0 left-1/2 -translate-x-1/2",
-                                  )}
-                                  style={{ opacity: watermark.opacity }}
-                                >
+
+                       <div className="space-y-16">
+                         {Array.from({ length: isPartStory ? numParts : 1 }).map((_, pIdx) => {
+                           const pNum = pIdx + 1;
+                           const partScenes = isPartStory ? scenes.filter(s => s.partIndex === pNum) : scenes;
+                           
+                           return (
+                             <div key={pNum} className="space-y-6">
+                               <div className="flex items-center gap-4 px-1">
+                                 <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                                 <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">PART {pNum} FRAMES</span>
+                                 <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                                </div>
-                              )}
-                           </motion.div>
-                         )) : Array(scenes.length || 8).fill(0).map((_, i) => (
-                            <div key={i} className="aspect-[9/16] bg-zinc-900/50 border border-white/10 border-dashed rounded-2xl flex items-center justify-center">
-                               <ImageIcon className="w-6 h-6 text-zinc-800" />
+
+                               <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                                 {partScenes.map((scene, i) => (
+                                   <motion.div 
+                                     key={scene.id} 
+                                     initial={{ opacity: 0, scale: 0.95 }}
+                                     animate={{ opacity: 1, scale: 1 }}
+                                     className="group relative aspect-[9/16] bg-zinc-900 rounded-[32px] overflow-hidden border border-white/5 hover:border-red-500/50 transition-all shadow-2xl"
+                                   >
+                                     {scene.imageUrl ? (
+                                       <>
+                                         <img 
+                                           src={scene.imageUrl} 
+                                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" 
+                                           referrerPolicy="no-referrer"
+                                           crossOrigin="anonymous"
+                                         />
+                                         <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
+                                         <div className="absolute inset-0 p-5 flex flex-col justify-end gap-3 translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
+                                            <div className="flex flex-wrap gap-1">
+                                              {scene.isHook && <span className="px-2 py-0.5 bg-yellow-400 text-black text-[7px] font-black uppercase rounded-full">Hook</span>}
+                                              {scene.isCliffhanger && <span className="px-2 py-0.5 bg-red-600 text-white text-[7px] font-black uppercase rounded-full">Loop</span>}
+                                            </div>
+                                            <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Part {pNum} 0{i+1}</span>
+                                            <button 
+                                              onClick={() => handleRegenerateScene(scenes.findIndex(s => s.id === scene.id))}
+                                              className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white text-[9px] font-black uppercase tracking-widest rounded-2xl backdrop-blur-xl border border-white/10 transition-all flex items-center justify-center gap-2"
+                                            >
+                                              <RefreshCw size={12} /> RETRY
+                                            </button>
+                                         </div>
+                                       </>
+                                     ) : (
+                                       <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                                          <div className="w-12 h-12 border-2 border-red-500/10 border-t-red-500 rounded-full animate-spin" />
+                                          <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">IMAGING...</span>
+                                       </div>
+                                     )}
+                                   </motion.div>
+                                 ))}
+                               </div>
+                             </div>
+                           );
+                         })}
+                       </div>
+
+                       {!isLoading && (
+                        <div className="flex flex-col items-center gap-6 pt-12 text-center">
+                          {scenes.some(s => !s.imageUrl) ? (
+                            <div className="space-y-4">
+                               <button 
+                                onClick={() => handleGenerateVisuals()}
+                                className="px-16 py-6 bg-red-600 text-white font-black uppercase tracking-tighter rounded-full hover:scale-105 transition-all shadow-2xl active:scale-95 flex items-center gap-3"
+                              >
+                                Resume Visual Production <RefreshCw size={20} className="animate-spin-slow" />
+                              </button>
+                              <div className="flex flex-col items-center gap-1">
+                                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                                  {scenes.filter(s => !s.imageUrl).length} frames pending in production
+                                </p>
+                                <button 
+                                  onClick={handleAssembleVideo}
+                                  className="text-[9px] font-black text-red-500/50 hover:text-red-500 uppercase tracking-widest underline transition-colors"
+                                >
+                                  Skip & Preview Anyway
+                                </button>
+                              </div>
                             </div>
-                         ))}
+                          ) : (
+                             <motion.button 
+                              initial={{ scale: 0.9, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              onClick={handleAssembleVideo}
+                              className="px-16 py-6 bg-green-600 text-white font-black uppercase tracking-tighter rounded-full hover:bg-green-500 transition-all shadow-2xl active:scale-95 flex items-center gap-3"
+                            >
+                              Finalize Production Master <CheckCircle2 size={20} />
+                            </motion.button>
+                          )}
                         </div>
-                        {scenes.some(s => s.imageUrl) && !isLoading && (
-                         <motion.button 
-                           initial={{ opacity: 0, y: 20 }}
-                           animate={{ opacity: 1, y: 0 }}
-                           onClick={handleAssembleVideo}
-                           className="w-full py-4 bg-blue-500 text-white font-black uppercase tracking-tighter rounded-2xl flex items-center justify-center gap-2"
-                         >
-                           Proceed to Video Assembly <ChevronRight size={18} />
-                         </motion.button>
-                       )}
+                      )}
                     </div>
                   )}
 
