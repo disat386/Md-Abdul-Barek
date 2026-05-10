@@ -230,7 +230,7 @@ export async function exportToVideo(
         const sceneProgress = Math.min((time - sceneStartTime) / sDur, 1);
         
         const moveType = activeIndex % 8;
-        let scale = 1.25;
+        let scale: number;
         let xOffset = 0;
         let yOffset = 0;
         

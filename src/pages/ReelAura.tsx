@@ -633,12 +633,16 @@ export default function ReelAura({ profile }: { profile: any }) {
     setError("");
     setStatusMessage('Mastering visual aesthetic engine...');
     saveProjectState({ status: 'processing' });
+    
     try {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.IMAGE_GENERATION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
       const totalScenes = workingScenes.length;
       let completedCount = workingScenes.filter(s => s.imageUrl && s.status.visual === 'done').length;
+
+      // Initial progress set
+      setProgress(Math.floor((completedCount / totalScenes) * 100));
 
       // Controlled parallelism (Concurrency 5) for Reels to ensure high-speed but stable production
       const CONCURRENCY = 5;
@@ -679,7 +683,7 @@ export default function ReelAura({ profile }: { profile: any }) {
             });
 
             completedCount++;
-            setProgress(Math.floor((completedCount / totalScenes) * 100));
+            setProgress(Math.round((completedCount / totalScenes) * 100));
           } catch (err) {
             console.error(`Failed to generate Reel frame ${index}:`, err);
             setScenes(prev => {
@@ -691,10 +695,12 @@ export default function ReelAura({ profile }: { profile: any }) {
         }));
         
         if (i + CONCURRENCY < totalScenes) {
-          await new Promise(r => setTimeout(r, 600));
+          // Dynamic delay - shorten if we are just starting or already done
+          await new Promise(r => setTimeout(r, 300));
         }
       }
 
+      setStatusMessage('Deducting rendering fees...');
       await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
       
       // MANDATORY RESCUE PASS: Identity and heal any missing frames before finishing
@@ -716,7 +722,7 @@ export default function ReelAura({ profile }: { profile: any }) {
         if (failedIndices.length === 0) break;
         
         rescuePasses++;
-        setStatusMessage(`ReelRescue: Repairing ${failedIndices.length} frames (Pass ${rescuePasses})...`);
+        setStatusMessage(`Repairing ${failedIndices.length} frames (Pass ${rescuePasses})...`);
         
         // Parallelized Rescue for vertical speed
         await Promise.all(failedIndices.map(async (idx) => {
@@ -729,7 +735,7 @@ export default function ReelAura({ profile }: { profile: any }) {
               return next;
             });
             completedCount++;
-            setProgress(Math.floor((completedCount / Math.max(totalScenes, completedCount)) * 100));
+            setProgress(Math.round((completedCount / totalScenes) * 100));
           } catch (e) {
             console.error(`Rescue attempt ${rescuePasses} failed for ${idx}`, e);
           }
@@ -758,24 +764,24 @@ export default function ReelAura({ profile }: { profile: any }) {
           console.warn("Reel DB update failure", e);
         }
 
+        setIsLoading(false);
         setTimeout(() => {
-          setIsLoading(false);
           handleAssembleVideo();
           setStatusMessage('');
-        }, 800);
+        }, 500);
       } else {
         setIsLoading(false);
         setStatusMessage('Reel ready with some failed frames. Please retry manually.');
       }
     } catch (err: any) {
       console.error("Reel Generator Error:", err);
-      setError(err.message);
+      setError(err.message || "Visual generation failed.");
       setIsLoading(false);
     } finally {
-      setIsLoading(false);
+      // Ensure we don't leave the UI in a loading state if we didn't transition
       setTimeout(() => {
-        if (statusMessage === 'Storyboard Perfected!') setStatusMessage('');
-      }, 3000);
+        setIsLoading(prev => prev ? false : prev);
+      }, 5000);
     }
   };
 
