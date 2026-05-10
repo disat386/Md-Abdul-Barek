@@ -33,6 +33,7 @@ import { exportToVideo, ExportProgress } from '../lib/videoExporter';
 
 interface Scene {
   id: string;
+  partIndex: number; // For episodic tracking
   visualPrompt: string;
   narration: string;
   imageUrl: string;
@@ -151,14 +152,25 @@ export default function ReelAura({ profile }: { profile: any }) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
 
-  const handleExportVideo = async () => {
+  const handleExportVideo = async (targetPartIndex?: number) => {
     if (scenes.length === 0) return;
     
     setIsExporting(true);
-    setExportProgress({ progress: 0, status: 'Finalizing Vertical Reel Master...' });
+    const statusLabel = targetPartIndex ? `Finalizing Part ${targetPartIndex}...` : 'Finalizing Full Reel Master...';
+    setExportProgress({ progress: 0, status: statusLabel });
     
     try {
-      const videoBlob = await exportToVideo(scenes, audioUrl, {
+      const workingScenes = targetPartIndex 
+        ? scenes.filter(s => s.partIndex === targetPartIndex)
+        : scenes;
+
+      if (workingScenes.length === 0) throw new Error("No scenes found for this part.");
+
+      // Check if scenes have individual audio or we need to use a master chunk
+      const firstAudio = workingScenes[0].audioUrl;
+      const effectiveAudioUrl = (firstAudio && firstAudio !== 'MULTI_SCENE_AUDIO') ? firstAudio : audioUrl;
+
+      const videoBlob = await exportToVideo(workingScenes, effectiveAudioUrl, {
         aspectRatio: 'reel',
         onProgress: (p) => setExportProgress(p)
       });
@@ -166,7 +178,10 @@ export default function ReelAura({ profile }: { profile: any }) {
       const url = URL.createObjectURL(videoBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Auurio_Reel_${Date.now()}.webm`;
+      const filename = targetPartIndex 
+        ? `Auurio_Reel_Part${targetPartIndex}_${Date.now()}.webm`
+        : `Auurio_Full_Reel_${Date.now()}.webm`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -197,35 +212,35 @@ export default function ReelAura({ profile }: { profile: any }) {
       const prompt = `ACT AS A VIRAL CONTENT ARCHITECT & SHORT-FORM RETENTION MASTER.
       Write an ultra-high-energy, fast-paced viral script in ${language} about: ${topic}.
       
-      CONTENT STRATEGY:
+      CORE STRATEGY:
       - Use ultra-short, punchy sentences.
       - Eliminate fluff. Every word must grab attention.
-      - Optimize for vertical storytelling.
+      - Optimize for vertical storytelling with extreme retention hooks.
       
       STRUCTURE:
       ${isPartStory ? `YOU MUST DIVIDE THIS INTO EXACTLY ${numParts} PARTS.
-      EACH PART MUST BE SELF-CONTAINED BUT CONNECTED.
+      EACH PART MUST BE A COMPLETE STORY ARC BUT END WITH A MASSIVE CLIFFHANGER.
+      THE DURATION PER PART IS ROUGHLY ${partLength} SECONDS.
+      
       TEMPLATE PER PART:
       [PART X START]
       [HOOK] (A mind-blowing, pattern-interrupt sentence to stop the scroll) [/HOOK]
-      [NARRATION] (The core high-energy revelations) [/NARRATION]
+      [NARRATION] (The core high-energy revelations. At least 8-10 long sentences per part to fill the requested duration.) [/NARRATION]
       [CLIFFHANGER] (A suspenseful "open loop" that makes them search for Part X+1) [/CLIFFHANGER]
-      [PART X END]` : `One single continuous viral script with a strong hook at the 0.5s mark.`}
-
-      DURATION: Total script length must translate to roughly ${totalSeconds} seconds when spoken at 1.2x speed.
+      [PART X END]` : `One single continuous viral script with a strong hook at the 0.5s mark. Total duration: ${totalSeconds} seconds.`}
 
       OUTPUT FORMAT:
       [NARRATIVE]
-      ${isPartStory ? `(ALL part blocks here in order)` : `(One master script block)`}
+      ${isPartStory ? `(ALL ${numParts} part blocks here in order)` : `(One master script block)`}
       [/NARRATIVE]
 
       [VISUALS]
       1. [VISUAL] High-impact vertical motion prompt 1
       2. [VISUAL] High-impact vertical motion prompt 2
-      ... (provide at least one per 5-6 seconds)
+      ... (provide at least one high-impact prompt per 6-8 seconds of story)
       [/VISUALS]
 
-      CRITICAL: Ensure [PART] markers are mathematically precise. Don't skip numbers.`;
+      CRITICAL: Ensure [PART] markers are mathematically precise. Don't skip numbers. Content must be LONG enough to fill the requested ${partLength}s per part.`;
 
       const generatedContent = await aiService.generateText(prompt, undefined, (status) => setStatusMessage(status));
       setFullScript(generatedContent);
@@ -303,7 +318,8 @@ export default function ReelAura({ profile }: { profile: any }) {
           
           if (!cleanText) return;
 
-          const scenesPerPart = Math.ceil(frameCount / matches.length);
+          // Goal: Distribute scenes evenly across parts
+          const scenesPerPart = Math.max(4, Math.ceil(frameCount / matches.length));
           const segmentLen = Math.ceil(cleanText.length / scenesPerPart);
           
           for (let i = 0; i < scenesPerPart; i++) {
@@ -314,7 +330,8 @@ export default function ReelAura({ profile }: { profile: any }) {
 
             parsedScenes.push({
               id: Math.random().toString(36).substr(2, 9),
-              visualPrompt: visuals[parsedScenes.length] || `Part ${pIdx + 1} viral aesthetic segment`,
+              partIndex: pIdx + 1,
+              visualPrompt: visuals[parsedScenes.length] || `Viral Reel scene ${parsedScenes.length + 1}: ${topic.substring(0, 20)}...`,
               narration: textSegment,
               imageUrl: '',
               status: { story: 'done', voice: 'pending', visual: 'pending' }
@@ -336,7 +353,8 @@ export default function ReelAura({ profile }: { profile: any }) {
         
         return {
           id: Math.random().toString(36).substr(2, 9),
-          visualPrompt: visuals[index] || "Vertical high impact cinematic",
+          partIndex: 1,
+          visualPrompt: visuals[index] || `Vertical high impact cinematic frame ${index + 1}`,
           narration: text.substring(start, end).trim() || "Captivating moment...",
           imageUrl: '',
           status: { story: 'done', voice: 'pending', visual: 'pending' }
@@ -392,58 +410,104 @@ export default function ReelAura({ profile }: { profile: any }) {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
-      setStatusMessage("DYNAMIC SYNTHESIS: High-Impact Neural Narrator mastering...");
+      setStatusMessage("EPISODIC SYNTHESIS: High-Impact Neural Narrator mastering by parts...");
       
       if (!fullScript || fullScript.length < 10) {
         throw new Error("Viral script is missing or too short. Please refine in the editor.");
       }
 
-      const cleanScript = fullScript.replace(/\[PART \d+ START\]|\[PART \d+ END\]|\[NARRATION\]|\[\/NARRATION\]|\[HOOK\]|\[\/HOOK\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '').trim();
+      const partRegex = /\[PART (\d+) START\]([\s\S]*?)\[PART \1 END\]/gi;
+      const partMatches = Array.from(fullScript.matchAll(partRegex));
       
-      const res = await aiService.generateAudio(cleanScript, voice, language, {
-        onProgress: (p) => setProgress(p)
-      });
-      
-      if (!res.url) throw new Error("Voice synthesis failure.");
+      if (isPartStory && partMatches.length > 0) {
+        // Multi-part independent synthesis
+        const partAudios: { index: number; url: string; duration: number }[] = [];
+        
+        for (let i = 0; i < partMatches.length; i++) {
+          const m = partMatches[i];
+          const partIdx = parseInt(m[1]);
+          const rawContent = m[2].trim();
+          const cleanPartText = rawContent
+            .replace(/\[HOOK\]|\[\/HOOK\]|\[NARRATION\]|\[\/NARRATION\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '')
+            .trim();
+          
+          if (!cleanPartText) continue;
 
-      setAudioUrl(res.url);
-      
-      // Save immediately to prevent loss on reload
-      await saveProjectState({ audioUrl: res.url });
-      
-      setIsLoading(false); // Clear earlier
+          setStatusMessage(`Synthesizing Part ${partIdx}/${partMatches.length}...`);
+          const res = await aiService.generateAudio(cleanPartText, voice, language, {
+            onProgress: (p) => setProgress(Math.floor((i / partMatches.length) * 100) + Math.floor(p / partMatches.length))
+          });
+          
+          if (res.url) {
+            const audio = new Audio(res.url);
+            const duration = await new Promise<number>((resolve) => {
+              audio.onloadedmetadata = () => resolve(audio.duration);
+              setTimeout(() => resolve(cleanPartText.length * 0.1), 3000); // Fallback
+            });
+            partAudios.push({ index: partIdx, url: res.url, duration });
+          }
+        }
 
-      // Sync durations
-      const audio = new Audio(res.url);
-      const audioLoadPromise = new Promise<number>((resolve) => {
-        if (audio.duration && !isNaN(audio.duration)) resolve(audio.duration);
-        audio.onloadedmetadata = () => resolve(audio.duration);
-        setTimeout(() => resolve(fullScript.length * 0.1), 5000);
-      });
+        if (partAudios.length === 0) throw new Error("Voice synthesis failure for parts.");
 
-      const totalDuration = await audioLoadPromise;
-      const totalChars = scenes.reduce((sum, s) => sum + s.narration.length, 0) || 1;
+        // Assign part-specific audio to scenes
+        setScenes(prev => prev.map(s => {
+          const partAudio = partAudios.find(pa => pa.index === s.partIndex);
+          if (partAudio) {
+            // Count scenes in this part to distribute duration
+            const scenesInPart = prev.filter(ps => ps.partIndex === s.partIndex);
+            const totalCharsInPart = scenesInPart.reduce((acc, curr) => acc + curr.narration.length, 0) || 1;
+            const weight = s.narration.length / totalCharsInPart;
+            
+            return {
+              ...s,
+              audioUrl: partAudio.url,
+              audioDuration: Math.max(2, weight * partAudio.duration),
+              status: { ...s.status, voice: 'done' }
+            };
+          }
+          return s;
+        }));
 
-      setScenes(prev => prev.map(s => {
-        const weight = s.narration.length / totalChars;
-        const sDuration = Math.max(2, weight * totalDuration); // At least 2s per scene
-        return {
-          ...s,
-          audioUrl: 'MULTI_SCENE_AUDIO',
-          audioDuration: sDuration,
-          status: { ...s.status, voice: 'done' }
-        };
-      }));
+        // For the main player, we'll use the first part's audio as a placeholder or we might need to handle multi-audio player
+        setAudioUrl(partAudios[0].url);
+
+      } else {
+        // Single cohesive story synthesis
+        const cleanScript = fullScript.replace(/\[PART \d+ START\]|\[PART \d+ END\]|\[NARRATION\]|\[\/NARRATION\]|\[HOOK\]|\[\/HOOK\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '').trim();
+        const res = await aiService.generateAudio(cleanScript, voice, language, {
+          onProgress: (p) => setProgress(p)
+        });
+        
+        if (!res.url) throw new Error("Voice synthesis failure.");
+        setAudioUrl(res.url);
+
+        const audio = new Audio(res.url);
+        const totalDuration = await new Promise<number>((resolve) => {
+          audio.onloadedmetadata = () => resolve(audio.duration);
+          setTimeout(() => resolve(fullScript.length * 0.1), 5000);
+        });
+
+        const totalChars = scenes.reduce((sum, s) => sum + s.narration.length, 0) || 1;
+
+        setScenes(prev => prev.map(s => {
+          const weight = s.narration.length / totalChars;
+          return {
+            ...s,
+            audioUrl: 'MULTI_SCENE_AUDIO',
+            audioDuration: Math.max(2, weight * totalDuration),
+            status: { ...s.status, voice: 'done' }
+          };
+        }));
+      }
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION, 'VOICE_SYNTHESIS');
       setProgress(100);
-      setStatusMessage('Viral Audio Mastered!');
-      
-      // Delay transition to ensure state batching finishes
+      setStatusMessage('Part-wise Audio Mastered!');
       setTimeout(() => setActiveStep('visuals'), 500);
     } catch (err: any) {
-      console.error("Reel Unified synthesis error:", err);
-      setError(err.message || "Narrative synthesis failure.");
+      console.error("Episodic synthesis error:", err);
+      setError(err.message || "Synthesis failure.");
     } finally {
       setIsLoading(false);
       setTimeout(() => setStatusMessage(''), 3000);
@@ -1403,14 +1467,44 @@ export default function ReelAura({ profile }: { profile: any }) {
             )}
 
             {activeStep === 'video' && (
-              <button 
-                onClick={handleAssembleVideo}
-                disabled={isLoading || !!videoUrl}
-                className="w-full py-4 bg-green-500 text-black font-bold uppercase tracking-tighter flex items-center justify-center gap-2 rounded-2xl hover:bg-green-400 transition-all active:scale-95 disabled:opacity-50"
-              >
-                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
-                Export Reel
-              </button>
+              <div className="space-y-4">
+                <button 
+                  onClick={() => handleAssembleVideo()}
+                  disabled={isLoading}
+                  className="w-full py-4 bg-green-500 text-black font-bold uppercase tracking-tighter flex items-center justify-center gap-2 rounded-2xl hover:bg-green-400 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+                  Review Full Production
+                </button>
+
+                {isPartStory && (
+                  <div className="pt-2 space-y-3">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Episodic Downloads</label>
+                    <div className="grid grid-cols-1 gap-2">
+                       {Array.from({ length: numParts }).map((_, i) => (
+                         <div key={i} className="group p-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-between hover:bg-white/10 transition-all">
+                            <div className="flex items-center gap-3">
+                               <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-500 font-black text-xs italic">
+                                 {i + 1}
+                               </div>
+                               <div>
+                                 <h4 className="text-[10px] font-black text-white uppercase tracking-tighter">PART {i + 1}</h4>
+                                 <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Independent Reel Master</p>
+                               </div>
+                            </div>
+                            <button 
+                              onClick={() => handleExportVideo(i + 1)}
+                              disabled={isExporting}
+                              className="p-2 bg-green-500/20 text-green-500 group-hover:bg-green-500 group-hover:text-black rounded-lg transition-all disabled:opacity-50"
+                            >
+                              <Download size={14} />
+                            </button>
+                         </div>
+                       ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {(isLoading || statusMessage) && (
@@ -1650,17 +1744,8 @@ export default function ReelAura({ profile }: { profile: any }) {
                               audioUrl={audioUrl}
                               title={topic}
                               aspectRatio="reel"
-                              onDownload={() => {
-                            const masterData = `AUURIO Vertical REEL MASTER\n==========================\nTitle: ${topic}\nStyle: ${theme}\nDate: ${new Date().toLocaleString()}\n\nREEL SCRIPT:\n${scenes.map((s, i) => `[FRAME ${i+1}]\nScene: ${s.visualPrompt}\nAudio: ${s.narration}\n`).join('\n')}\n\nREEL ASSETS:\nAudio Master: ${audioUrl}\n${scenes.map((s, i) => `Frame ${i+1} (Vertical 4K): ${s.imageUrl}`).join('\n')}\n\n==========================\nGenerated by Auurio AI Platform`;
-                            const blob = new Blob([masterData], { type: 'text/plain' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `Auurio_Reel_${topic.replace(/\s+/g, '_')}_Master.txt`;
-                            a.click();
-                            window.open(audioUrl, '_blank');
-                            alert("Auurio: Vertical Reel production assets and master script have been exported.");
-                          }}
+                              numParts={isPartStory ? numParts : 1}
+                              onDownload={() => handleExportVideo()}
                             />
                             <div className="mt-12 flex flex-col sm:flex-row gap-4">
                                <button 

@@ -18,6 +18,7 @@ interface Scene {
   imageUrl: string;
   audioUrl?: string;
   audioDuration?: number;
+  partIndex?: number; // Optional episodic indicator
 }
 
 interface ProductionPlayerProps {
@@ -27,6 +28,7 @@ interface ProductionPlayerProps {
   onDownload?: () => void;
   aspectRatio?: 'video' | 'reel';
   onComplete?: () => void;
+  numParts?: number; // Total parts for episodic indication
 }
 
 export default function ProductionPlayer({ 
@@ -35,7 +37,8 @@ export default function ProductionPlayer({
   title, 
   onDownload, 
   aspectRatio = 'video',
-  onComplete 
+  onComplete,
+  numParts = 1
 }: ProductionPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -304,6 +307,23 @@ export default function ProductionPlayer({
             
             {/* Cinematic Overlay Blur */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
+
+            {/* Episodic Indicator Badge */}
+            {aspectRatio === 'reel' && numParts > 1 && (
+              <div className="absolute top-20 right-6 z-40">
+                <motion.div 
+                  initial={{ x: 20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  key={scenes[currentSceneIndex]?.partIndex}
+                  className="bg-black/40 backdrop-blur-md border border-white/20 px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-2"
+                >
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                  <span className="text-[10px] font-black text-white tracking-widest uppercase">
+                    Part {scenes[currentSceneIndex]?.partIndex || 1} / {numParts}
+                  </span>
+                </motion.div>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
       </div>
