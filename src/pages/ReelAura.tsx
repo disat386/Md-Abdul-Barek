@@ -39,6 +39,8 @@ interface Scene {
   imageUrl: string;
   audioUrl?: string;
   audioDuration?: number;
+  isHook?: boolean;
+  isCliffhanger?: boolean;
   status: {
     story: 'pending' | 'processing' | 'done' | 'error';
     voice: 'pending' | 'processing' | 'done' | 'error';
@@ -209,39 +211,38 @@ export default function ReelAura({ profile }: { profile: any }) {
 
       const totalSeconds = isPartStory ? numParts * partLength : length * 60;
       
-      const prompt = `ACT AS A VIRAL SHORT-FORM RETENTION GOD. 
-      Write an ultra-high-energy, fast-paced vertical storytelling script in ${language} about: ${topic}.
+      const prompt = `ACT AS A VIRAL SHORT-FORM RETENTION MASTER. 
+      Your mission is to write an ultra-high-energy, fast-paced vertical storytelling script in ${language} about: ${topic}.
       
-      STORYTELLING ARCHITECTURE (MANDATORY):
-      - NO SLOW INTROS. NO FILLER. NO FLUFF.
-      - Start with a "Pattern Interrupt" Hook (1-3 seconds) that forces a scroll-stop.
-      - Every single line MUST build curiosity. The viewer should feel they CANNOT leave.
-      - Short, rhythmic, hammer-like sentences.
-      - Use suspense triggers: "But there's a catch...", "They never saw this coming...", "Wait until you hear the end."
+      RETENTION RULES (MANDATORY):
+      - START WITH A JOLT. The first 2 seconds must be a "Pattern Interrupt" hook that makes scrolling impossible.
+      - PACING: Every sentence must hit like a hammer. No comma-heavy long sentences.
+      - CURIOSITY: Every line must answer one question but raise a bigger one.
+      - EMOTIONAL INTENSITY: Use strong words and sensory details.
       
-      ${isPartStory ? `EPISODIC STRUCTURE:
-      YOU MUST DIVIDE THIS INTO EXACTLY ${numParts} PARTS.
-      EACH PART IS A MINI-EPISODE OF ROUGHLY ${partLength} SECONDS.
+      ${isPartStory ? `EPISODIC SYSTEM:
+      DIVIDE INTO EXACTLY ${numParts} PARTS. 
+      Each part is ROUGHLY ${partLength} SECONDS.
       
-      PART TEMPLATE (STRICT):
+      STRICT TEMPLATE PER PART:
       [PART X START]
-      [HOOK] (Extreme attention grabber relative to this part's twist) [/HOOK]
-      [NARRATION] (Dense, curiosity-driven story progression. MUST be long enough for ${partLength}s) [/NARRATION]
-      [CLIFFHANGER] (A massive open-loop ending that triggers an immediate need for the next part) [/CLIFFHANGER]
-      [PART X END]` : `CONSTANT INTENSITY: Hook at 0s, Suspense at 15s, Payoff at 45s, Viral Loop at end. Total duration: ${totalSeconds}s.`}
+      [HOOK] (A devastatingly engaging opening line. Max 5-7 words. Must re-hook viewer even if they just saw Part X-1) [/HOOK]
+      [NARRATION] (The meat of the story. High speed. Multiple revelations. At least 15-20 punchy lines to fill the ${partLength}s duration.) [/NARRATION]
+      [CLIFFHANGER] (A massive unanswered question or a "to be continued" twist that forces them to find the next part) [/CLIFFHANGER]
+      [PART X END]` : `CONTINUOUS RETENTION: Hook at 0s, Suspense peaks every 15s, Payoff at 45s, and a viral loop ending. Total duration: ${totalSeconds}s.`}
 
       OUTPUT FORMAT:
       [NARRATIVE]
-      ${isPartStory ? `(ALL ${numParts} PART BLOCKS IN SEQUENTIAL ORDER)` : `(ONE SINGLE HIGH-INTENSITY MASTER SCRIPT)`}
+      ${isPartStory ? `(PROVIDE ALL ${numParts} PARTS SEQUENTIALLY)` : `(ONE CONTINUOUS MASTER SCRIPT)`}
       [/NARRATIVE]
 
       [VISUALS]
-      Provide exactly one [VISUAL] prompt per 6 seconds of story. 
-      Vertical 9:16 high-impact cinematic motion prompts.
-      Example: 1. [VISUAL] Cinematic close up of...
+      Provide one [VISUAL] prompt per 6 seconds of story. 
+      Prompts must be: 9:16 aspect ratio, cinematic, high-motion, realistic vertical footage descriptions.
+      Example: 1. [VISUAL] Extreme close up of sweat on a runner's face, cinematic lighting...
       [/VISUALS]
 
-      CRITICAL: Content must be LONG enough to fill the requested time. If a part is ${partLength}s, provide at least 12-15 punchy lines.`;
+      REMENTER: In ${language}. No slow buildup. No unnecessary explanations. Just pure curiosity-driven momentum.`;
 
       const generatedContent = await aiService.generateText(prompt, undefined, (status) => setStatusMessage(status));
       setFullScript(generatedContent);
@@ -335,6 +336,7 @@ export default function ReelAura({ profile }: { profile: any }) {
               visualPrompt: visuals[parsedScenes.length] || `Viral hook visual for Part ${partIndex}: ${topic}`,
               narration: hook,
               imageUrl: '',
+              isHook: true,
               status: { story: 'done', voice: 'pending', visual: 'pending' }
             });
           }
@@ -365,6 +367,7 @@ export default function ReelAura({ profile }: { profile: any }) {
               visualPrompt: visuals[parsedScenes.length] || `Cliffhanger visual for Part ${partIndex}: ${topic}`,
               narration: cliff,
               imageUrl: '',
+              isCliffhanger: true,
               status: { story: 'done', voice: 'pending', visual: 'pending' }
             });
           }
@@ -376,22 +379,27 @@ export default function ReelAura({ profile }: { profile: any }) {
     if (parsedScenes.length === 0) {
       const totalSeconds = length * 60;
       const targetFrames = Math.max(visuals.length, Math.ceil(totalSeconds / 6));
-      const charsPerSegment = Math.max(1, Math.floor(text.length / targetFrames));
       
-      parsedScenes = Array.from({ length: targetFrames }).map((_, index) => {
-        const start = index * charsPerSegment;
-        let end = (index + 1) * charsPerSegment;
-        if (index === targetFrames - 1) end = text.length;
-        
-        return {
+      // Smart splitting based on sentence boundaries if possible
+      const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g) || [text];
+      const sentencesPerFrame = Math.max(1, Math.ceil(sentences.length / targetFrames));
+      
+      for (let i = 0; i < targetFrames; i++) {
+        const frameSentences = sentences.slice(i * sentencesPerFrame, (i + 1) * sentencesPerFrame);
+        const frameText = frameSentences.join('').trim();
+        if (!frameText) continue;
+
+        parsedScenes.push({
           id: Math.random().toString(36).substr(2, 9),
           partIndex: 1,
-          visualPrompt: visuals[index] || `Vertical high impact cinematic frame ${index + 1}`,
-          narration: text.substring(start, end).trim() || "Captivating moment...",
+          visualPrompt: visuals[i] || `Vertical high impact cinematic frame ${i + 1}`,
+          narration: frameText,
           imageUrl: '',
+          isHook: i === 0,
+          isCliffhanger: i === targetFrames - 1,
           status: { story: 'done', voice: 'pending', visual: 'pending' }
-        };
-      });
+        });
+      }
     }
 
     return parsedScenes;
@@ -1700,6 +1708,14 @@ export default function ReelAura({ profile }: { profile: any }) {
                                     }}
                                   />
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 gap-2">
+                                    <div className="flex flex-wrap gap-1 mb-1">
+                                      {scene.isHook && (
+                                        <span className="px-1.5 py-0.5 bg-yellow-400 text-black text-[7px] font-black uppercase rounded shadow-lg">Hook</span>
+                                      )}
+                                      {scene.isCliffhanger && (
+                                        <span className="px-1.5 py-0.5 bg-red-600 text-white text-[7px] font-black uppercase rounded shadow-lg">Cliffhanger</span>
+                                      )}
+                                    </div>
                                     <span className="text-[10px] font-black text-white uppercase italic tracking-widest">Frame 0{i+1}</span>
                                     <button 
                                       onClick={() => handleRegenerateScene(i)}
