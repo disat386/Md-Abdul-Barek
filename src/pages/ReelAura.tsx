@@ -1135,27 +1135,50 @@ export default function ReelAura({ profile }: { profile: any }) {
         {steps.map((s, idx) => {
           const StepIcon = s.icon;
           const isActive = activeStep === s.id;
-          const isDone = steps.findIndex(x => x.id === activeStep) > idx;
+          
+          // Improved logic for step accessibility and completion
+          const hasScript = !!fullScript;
+          const hasScenes = scenes.length > 0;
+          const hasVoice = !!audioUrl || scenes.some(sc => !!sc.audioUrl);
+          const hasVisuals = scenes.length > 0 && scenes.every(sc => !!sc.imageUrl);
+
+          let isAccessible = idx === 0;
+          if (s.id === 'editor') isAccessible = hasScript;
+          if (s.id === 'voice') isAccessible = hasScript;
+          if (s.id === 'visuals') isAccessible = hasScenes;
+          if (s.id === 'video') isAccessible = hasScenes;
+
+          const isCompleted = (s.id === 'script' && hasScript) ||
+                            (s.id === 'editor' && hasScenes) ||
+                            (s.id === 'voice' && hasVoice) ||
+                            (s.id === 'visuals' && hasVisuals) ||
+                            (s.id === 'video' && !!videoUrl);
 
           return (
             <div key={s.id} className="flex items-center gap-2 md:gap-3 shrink-0">
               <button 
-                disabled={!isDone && !isActive}
+                disabled={!isAccessible}
                 onClick={() => setActiveStep(s.id as Step)}
                 className={cn(
                   "flex items-center gap-2 md:gap-3 p-3 md:p-4 rounded-xl md:rounded-2xl border transition-all min-w-[120px] md:min-w-0",
-                  isActive ? "bg-zinc-900 border-white/20 ring-2 ring-red-500/20" : isDone ? "bg-zinc-900/50 border-white/5 opacity-80" : "bg-black/20 border-white/5 opacity-30 cursor-not-allowed"
+                  isActive ? "bg-zinc-900 border-white/20 ring-2 ring-red-500/20" : 
+                  isAccessible ? "bg-zinc-900/50 border-white/5 opacity-80" : 
+                  "bg-black/20 border-white/5 opacity-30 cursor-not-allowed"
                 )}
               >
-                <div className={cn("p-1.5 md:p-2 rounded-lg md:rounded-xl shrink-0", s.bg, s.color)}>
-                  <StepIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                <div className={cn(
+                  "p-1.5 md:p-2 rounded-lg md:rounded-xl shrink-0 transition-all", 
+                  isActive ? s.bg : "bg-zinc-800/50",
+                  isActive ? s.color : isCompleted ? "text-green-500" : "text-zinc-600"
+                )}>
+                  {isCompleted && !isActive ? <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4" /> : <StepIcon className="w-3.5 h-3.5 md:w-4 md:h-4" />}
                 </div>
                 <div className="text-left overflow-hidden">
                   <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-zinc-600 truncate">STG {idx + 1}</p>
                   <p className={cn("text-[10px] md:text-xs font-black uppercase tracking-tighter truncate", isActive ? "text-white" : "text-zinc-500")}>{s.label}</p>
                 </div>
               </button>
-              {idx < 3 && <ChevronRight size={14} className="text-zinc-800 shrink-0" />}
+              {idx < steps.length - 1 && <ChevronRight size={14} className="text-zinc-800 shrink-0" />}
             </div>
           );
         })}
@@ -1710,58 +1733,110 @@ export default function ReelAura({ profile }: { profile: any }) {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">PRO EPISODIC STORYBOARD</span>
+                          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">Professional episodic Script Editor</span>
                         </div>
-                        <span className="text-[10px] font-black text-red-500/50 uppercase tabular-nums tracking-widest">
-                          {fullScript.length} Characters | Retention Optimized
+                        <span className="text-[10px] font-black text-red-500 uppercase tabular-nums tracking-widest bg-red-500/10 px-3 py-1 rounded-full">
+                          {fullScript.split(/\s+/).length} Words | {fullScript.length} Characters
                         </span>
                       </div>
                       
-                      <div className="flex-1 overflow-y-auto space-y-8 pr-2 custom-scrollbar">
+                      <div className="flex-1 overflow-y-auto space-y-12 pr-2 custom-scrollbar pb-20">
                         {Array.from({ length: isPartStory ? numParts : 1 }).map((_, pIdx) => {
                           const pNum = pIdx + 1;
-                          const partScenes = isPartStory ? scenes.filter(s => s.partIndex === pNum) : scenes;
+                          
+                          // Correctly extract the part text including its tags for context but allowing editing of the meat
+                          const getPartContent = () => {
+                            if (!isPartStory) return fullScript;
+                            const regex = new RegExp(`\\[PART ${pNum} START\\]([\\s\\S]*?)\\[PART ${pNum} END\\]`, 'i');
+                            const match = fullScript.match(regex);
+                            return match ? match[1].trim() : "Part content not found...";
+                          };
+
+                          const handlePartEdit = (newText: string) => {
+                            if (!isPartStory) {
+                              setFullScript(newText);
+                              return;
+                            }
+                            const regex = new RegExp(`(\\[PART ${pNum} START\\])([\\s\\S]*?)(\\[PART ${pNum} END\\])`, 'i');
+                            setFullScript(prev => prev.replace(regex, `$1\n${newText}\n$3`));
+                          };
                           
                           return (
-                            <div key={pNum} className="relative bg-zinc-900/50 border border-white/5 rounded-[32px] p-8 space-y-6">
-                              <div className="absolute -top-3 left-8 px-4 py-1 bg-red-600 text-white rounded-full flex items-center gap-2">
-                                <span className="text-[10px] font-black uppercase italic tracking-widest">PART {pNum}</span>
-                              </div>
-                              
-                              {partScenes.map((scene, sIdx) => (
-                                <div key={scene.id} className="group relative bg-black/40 border border-white/5 rounded-2xl p-6 hover:border-white/20 transition-all">
-                                  <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Frame {sIdx + 1}</span>
-                                      {scene.isHook && <span className="px-1.5 py-0.5 bg-yellow-400 text-black text-[7px] font-black uppercase rounded">Start Hook</span>}
-                                      {scene.isCliffhanger && <span className="px-1.5 py-0.5 bg-red-600 text-white text-[7px] font-black uppercase rounded">Cliffhanger</span>}
+                            <motion.div 
+                              key={pNum} 
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: pIdx * 0.1 }}
+                              className="relative group"
+                            >
+                              <div className="absolute -left-4 top-0 bottom-0 w-1 bg-gradient-to-b from-red-600 to-transparent rounded-full opacity-50 group-hover:opacity-100 transition-opacity" />
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-xl bg-red-600 flex items-center justify-center text-white text-xs font-black italic shadow-lg shadow-red-600/20">
+                                      {pNum}
                                     </div>
+                                    <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">EPISODE PART {pNum}</h3>
                                   </div>
-                                  <textarea 
-                                    value={scene.narration}
-                                    onChange={(e) => {
-                                      const newScenes = [...scenes];
-                                      const idx = newScenes.findIndex(s => s.id === scene.id);
-                                      newScenes[idx].narration = e.target.value;
-                                      setScenes(newScenes);
-                                    }}
-                                    className="w-full bg-transparent border-none text-lg text-zinc-300 focus:text-white leading-relaxed font-bold outline-none resize-none h-auto min-h-[40px]"
-                                  />
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Story flow ready</span>
+                                    <CheckCircle2 size={12} className="text-green-500" />
+                                  </div>
                                 </div>
-                              ))}
-                            </div>
+
+                                <div className="relative">
+                                  <textarea 
+                                    value={getPartContent()}
+                                    onChange={(e) => handlePartEdit(e.target.value)}
+                                    className="w-full bg-zinc-900/40 border border-white/5 rounded-[32px] p-8 text-lg md:text-xl text-zinc-300 focus:text-white leading-relaxed font-bold outline-none ring-0 focus:border-red-500/30 transition-all resize-none min-h-[300px] shadow-2xl backdrop-blur-sm"
+                                    placeholder={`Write Part ${pNum} content here...`}
+                                  />
+                                  <div className="absolute top-4 right-8 flex gap-2">
+                                     <span className="text-[8px] font-black text-zinc-700 uppercase tracking-widest">PART {pNum} MASTER BLOCK</span>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2 px-4">
+                                  <div className="p-3 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center justify-center">
+                                    <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1">Hook State</span>
+                                    <span className="text-[9px] font-black text-red-500 uppercase italic">High Retention</span>
+                                  </div>
+                                  <div className="p-3 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center justify-center">
+                                    <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1">Body Pacing</span>
+                                    <span className="text-[9px] font-black text-orange-500 uppercase italic">Fast Momentum</span>
+                                  </div>
+                                  <div className="p-3 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center justify-center">
+                                    <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mb-1">Loop Exit</span>
+                                    <span className="text-[9px] font-black text-blue-500 uppercase italic">Cliffhanger Active</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
                           );
                         })}
                       </div>
 
-                      <div className="flex items-center justify-center gap-6 py-4 bg-black/40 border border-white/5 rounded-3xl">
-                        <button onClick={() => aiService.speak(fullScript, language)} className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-500 hover:text-white transition-colors">
-                          <Volume2 size={14} /> Full Rehearsal
-                        </button>
-                        <div className="w-px h-4 bg-zinc-800" />
-                        <button onClick={() => setFullScript('')} className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-500 hover:text-red-500 transition-colors">
-                          <Trash2 size={14} /> Reset all
-                        </button>
+                      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-sm">
+                        <div className="flex items-center justify-center gap-6 py-4 px-8 bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl">
+                          <button 
+                            onClick={() => aiService.speak(fullScript, language)} 
+                            className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-400 hover:text-white transition-all transform hover:scale-105"
+                          >
+                            <Volume2 size={14} className="text-red-500" /> Narrative Rehearsal
+                          </button>
+                          <div className="w-px h-6 bg-white/10" />
+                          <button 
+                            onClick={() => {
+                              if(confirm("Are you sure? This will wipe the current narrative.")) {
+                                setFullScript('');
+                                setScenes([]);
+                              }
+                            }} 
+                            className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-400 hover:text-red-500 transition-all transform hover:scale-105"
+                          >
+                            <Trash2 size={14} /> Wipe all
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
