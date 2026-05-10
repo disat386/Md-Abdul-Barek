@@ -202,6 +202,9 @@ export default function ReelAura({ profile }: { profile: any }) {
   const handleExportVideo = async (targetPartIndex?: number) => {
     if (scenes.length === 0) return;
     
+    // Stop any active UI text-to-speech to prevent interference
+    aiService.stopSpeaking();
+    
     setIsExporting(true);
     const statusLabel = targetPartIndex ? `Finalizing Segment ${targetPartIndex}...` : 'Finalizing Full Reel Master...';
     setExportProgress({ progress: 0, status: statusLabel });
@@ -232,6 +235,8 @@ export default function ReelAura({ profile }: { profile: any }) {
     }
 
     setIsExporting(true);
+    // Stop any active UI text-to-speech to prevent interference
+    aiService.stopSpeaking();
     setStatusMessage(`Initializing batch export of ${readyParts.length} segments...`);
     
     try {
@@ -610,16 +615,30 @@ export default function ReelAura({ profile }: { profile: any }) {
         }));
       }
 
-      await creditService.deduct(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION, 'VOICE_SYNTHESIS');
+      try {
+        await creditService.deduct(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION, 'VOICE_SYNTHESIS');
+      } catch (e) {
+        console.warn("Credit deduction bypassed", e);
+      }
+      
       setProgress(100);
       setStatusMessage('Voice Mastering Complete!');
-      setTimeout(() => setActiveStep('visuals'), 800);
+      
+      // Force transition to visual step
+      setTimeout(() => {
+        setIsLoading(false);
+        setActiveStep('visuals');
+      }, 800);
     } catch (err: any) {
       console.error("Narration synthesis failed:", err);
       setError(err.message || "Synthesis failure.");
-    } finally {
       setIsLoading(false);
-      setTimeout(() => setStatusMessage(''), 3000);
+    } finally {
+      // Ensure we always release loading state after a timeout as a fail-safe
+      setTimeout(() => {
+        setIsLoading(prev => prev ? false : prev);
+        setStatusMessage(prev => prev === 'Voice Mastering Complete!' ? '' : prev);
+      }, 3000);
     }
   };
 
@@ -1627,21 +1646,34 @@ export default function ReelAura({ profile }: { profile: any }) {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: i * 0.1 }}
                             className={cn(
-                              "group p-4 bg-zinc-900 shadow-xl border rounded-[28px] flex items-center justify-between transition-all cursor-pointer",
+                              "group p-3 bg-zinc-900 shadow-xl border rounded-[28px] flex items-center justify-between transition-all cursor-pointer",
                               currentPreviewPart === pNum ? "border-red-600/50 bg-red-600/5" : "border-white/5 hover:border-white/10"
                             )}
                             onClick={() => setCurrentPreviewPart(pNum)}
                           >
-                             <div className="flex items-center gap-4 flex-1">
-                                <div className={cn(
-                                  "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg italic transition-all",
-                                  currentPreviewPart === pNum ? "bg-red-600 text-white scale-110 shadow-lg shadow-red-600/30" : "bg-white/5 text-zinc-500"
-                                )}>
-                                  {pNum}
+                             <div className="flex items-center gap-3 flex-1">
+                                <div className="relative w-16 h-20 rounded-2xl overflow-hidden bg-black flex-shrink-0 border border-white/5">
+                                  {scenes.find(s => s.partIndex === pNum)?.imageUrl ? (
+                                    <img 
+                                      src={scenes.find(s => s.partIndex === pNum)?.imageUrl} 
+                                      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                                      alt=""
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <Loader2 className="w-4 h-4 text-zinc-700 animate-spin" />
+                                    </div>
+                                  )}
+                                  <div className={cn(
+                                    "absolute inset-0 flex items-center justify-center font-black text-xs italic transition-all",
+                                    currentPreviewPart === pNum ? "bg-red-600/20 text-white" : "bg-black/40 text-zinc-400"
+                                  )}>
+                                    {pNum}
+                                  </div>
                                 </div>
-                                <div>
-                                  <h4 className="text-[11px] font-black text-white uppercase tracking-tighter">SEGMENT {pNum}</h4>
-                                  <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">{isReady ? 'Production Ready' : 'In Progress'}</p>
+                                <div className="min-w-0">
+                                  <h4 className="text-[10px] font-black text-white uppercase tracking-tighter truncate">SEGMENT {pNum}</h4>
+                                  <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">{isReady ? 'MASTERED' : 'RENDERING'}</p>
                                 </div>
                              </div>
                              

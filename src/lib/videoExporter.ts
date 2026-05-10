@@ -79,7 +79,10 @@ export async function exportToVideo(
     totalDuration = current;
   } else {
     // Shared Audio Mode (Master Reel or Segment)
-    totalDuration = audioBuffers[0]?.duration || 10;
+    const masterBuffer = audioBuffers[0];
+    totalDuration = masterBuffer?.duration || 10;
+    if (totalDuration < 1) totalDuration = 10; // Safety fallback
+    
     const totalCharCount = scenes.reduce((sum, s) => sum + s.narration.length, 0) || 1;
     let current = 0;
     scenes.forEach(scene => {
@@ -88,6 +91,9 @@ export async function exportToVideo(
       current += sceneWeight * totalDuration;
     });
   }
+
+  // Ensure total duration is sane
+  if (isNaN(totalDuration) || totalDuration <= 0) totalDuration = 10;
 
   onProgress?.({ progress: 10, status: 'Initializing cinematic renderer...' });
 
@@ -185,7 +191,7 @@ export async function exportToVideo(
 
   return new Promise((resolve, reject) => {
     recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: 'video/webm' });
+      const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
       audioContext.close();
       resolve(blob);
     };
