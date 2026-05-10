@@ -315,10 +315,10 @@ export default function ReelAura({ profile }: { profile: any }) {
       }
 
       if (visualsBlock) {
-        finalVisuals = visualsBlock[1].split(/\[VISUAL\]/i).map(p => p.trim()).filter(p => p.length > 5);
+        finalVisuals = visualsBlock[1].split(/\[VISUAL\]/i).map(p => p.trim().replace(/Part\s+\d+|Segment\s+\d+/gi, '')).filter(p => p.length > 5);
       } else {
         // Fallback: search for visual markers anywhere
-        finalVisuals = generatedContent.split(/\[VISUAL\]/i).slice(1).map(p => p.trim().split(/\[\/VISUAL\]/i)[0]).filter(p => p.length > 5);
+        finalVisuals = generatedContent.split(/\[VISUAL\]/i).slice(1).map(p => p.trim().split(/\[\/VISUAL\]/i)[0].replace(/Part\s+\d+|Segment\s+\d+/gi, '')).filter(p => p.length > 5);
       }
 
       if (!finalNarration) {
@@ -401,7 +401,7 @@ export default function ReelAura({ profile }: { profile: any }) {
             parsedScenes.push({
               id: Math.random().toString(36).substr(2, 9),
               partIndex,
-              visualPrompt: visuals[parsedScenes.length] || `Viral hook visual for Part ${partIndex}: ${topic}`,
+              visualPrompt: visuals[parsedScenes.length] || `Viral hook visual for segment ${partIndex}: ${topic}`,
               narration: hook,
               imageUrl: '',
               isHook: true,
@@ -420,7 +420,7 @@ export default function ReelAura({ profile }: { profile: any }) {
             parsedScenes.push({
               id: Math.random().toString(36).substr(2, 9),
               partIndex,
-              visualPrompt: visuals[parsedScenes.length] || `High intensity scene ${i+2} for Part ${partIndex}`,
+              visualPrompt: visuals[parsedScenes.length] || `High intensity scene ${i+2} for segment ${partIndex}`,
               narration: textSeg,
               imageUrl: '',
               status: { story: 'done', voice: 'pending', visual: 'pending' }
@@ -432,7 +432,7 @@ export default function ReelAura({ profile }: { profile: any }) {
             parsedScenes.push({
               id: Math.random().toString(36).substr(2, 9),
               partIndex,
-              visualPrompt: visuals[parsedScenes.length] || `Cliffhanger visual for Part ${partIndex}: ${topic}`,
+              visualPrompt: visuals[parsedScenes.length] || `Cliffhanger visual for segment ${partIndex}: ${topic}`,
               narration: cliff,
               imageUrl: '',
               isCliffhanger: true,
@@ -672,8 +672,8 @@ export default function ReelAura({ profile }: { profile: any }) {
       // Initial progress set
       setProgress(Math.floor((completedCount / totalScenes) * 100));
 
-      // Controlled parallelism (Concurrency 5) for Reels to ensure high-speed but stable production
-      const CONCURRENCY = 4; // Slightly lower concurrency for more stability
+      // Controlled parallelism (Concurrency 4) for Reels to ensure high-speed but stable production
+      const CONCURRENCY = 4;
       for (let i = 0; i < totalScenes; i += CONCURRENCY) {
         const batch = localScenes.slice(i, i + CONCURRENCY);
         const batchIndices = Array.from({ length: batch.length }, (_, k) => i + k);
@@ -719,63 +719,38 @@ export default function ReelAura({ profile }: { profile: any }) {
         }
       }
 
-      setStatusMessage('Deducting rendering fees...');
-      try {
-        await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
-      } catch (e) {
-        console.warn("Credit deduction failed but continuing...", e);
-      }
+      // SYNC COMPLETION CHECK
+      const successfulFrames = localScenes.filter(s => s.imageUrl).length;
       
-      // FINAL VERIFICATION PASS
-      setStatusMessage('Final visual sync...');
-      const missingCount = localScenes.filter(s => !s.imageUrl).length;
-      
-      if (missingCount > 0) {
-        // Try rescue for failures
-        const failedIndices = localScenes
-          .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
-          .filter(idx => idx !== -1);
-          
-        if (failedIndices.length > 0) {
-          setStatusMessage(`Repairing ${failedIndices.length} frames...`);
-          await Promise.all(failedIndices.slice(0, 5).map(async (idx) => { // Limit rescue batch
-            try {
-              const url = await generateSingleSceneImage(localScenes[idx]);
-              localScenes[idx] = { ...localScenes[idx], imageUrl: url, status: { ...localScenes[idx].status, visual: 'done' } };
-              setScenes([...localScenes]);
-              completedCount++;
-              setProgress(Math.round((completedCount / totalScenes) * 100));
-            } catch (e) {
-              console.error(`Rescue failed for ${idx}`, e);
-            }
-          }));
-        }
-      }
-
-      const finalMissing = localScenes.some(s => !s.imageUrl);
-
-      if (!finalMissing) {
-        setStatusMessage('Storyboard Perfected!');
+      // We prioritize UX: if 90%+ frames are ready, transition immediately.
+      // We can clean up/deduct in the background.
+      if (successfulFrames >= Math.floor(totalScenes * 0.9) || successfulFrames === totalScenes) {
+        setStatusMessage('Reel storyboard mastered! Finalizing production...');
         setProgress(100);
         
-        // Background DB Update
-        saveProjectState({ 
-          scenes: localScenes,
-          status: 'ready', 
-          progress: 100,
-          activeStep: 'video' 
-        }).catch(e => console.warn("Background DB sync failed", e));
-
-        // FAST UI TRANSITION
-        setIsLoading(false);
+        // IMMEDIATE TRANSITION
         setActiveStep('video');
-        setTimeout(() => {
-          handleAssembleVideo();
-          setStatusMessage('');
-        }, 500);
+        setIsLoading(false);
+        handleAssembleVideo();
+
+        // Background cleanup tasks
+        const cleanup = async () => {
+          try {
+            await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
+            saveProjectState({ 
+              scenes: localScenes,
+              status: 'ready', 
+              progress: 100,
+              activeStep: 'video' 
+            }).catch(e => console.warn("Background save failed", e));
+          } catch (e) {
+            console.warn("Background cleanup tasks partially failed", e);
+          }
+        };
+        cleanup();
       } else {
         setIsLoading(false);
-        setStatusMessage('Reel ready with some failed frames. Please retry manually.');
+        setStatusMessage('Some frames failed. Please retry or generate again.');
       }
     } catch (err: any) {
       console.error("Reel Generator Error:", err);
@@ -826,7 +801,7 @@ export default function ReelAura({ profile }: { profile: any }) {
   const generateSingleSceneImage = async (sceneData: any) => {
     const visualPart = sceneData.visualPrompt;
     let styleModifiers: string;
-    const reelKeywords = "social media aesthetic, vertical 9:16 composition, high impact, trend-forward, vibrant, sharp focus, 8k resolution.";
+    const reelKeywords = "social media aesthetic, vertical 9:16 composition, high impact, trend-forward, vibrant, sharp focus, 8k resolution, absolutely no text, no labels, no parts, no numbers.";
     
     if (theme === 'Realistic') {
       styleModifiers = `${reelKeywords} photorealistic smartphone photography, golden hour glow, portrait lighting, close-up details.`;
@@ -837,7 +812,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     }
 
     const prompt = `Vertical Reel: ${visualPart}. Aesthetic: ${styleModifiers}`;
-    const negativePrompt = "landscape, horizontal, black bars, frame, border, low resolution, blurry, distorted features.";
+    const negativePrompt = "text, watermark, label, letters, words, part number, segment number, landscape, horizontal, black bars, frame, border, low resolution, blurry, distorted features.";
     
     const maxAttempts = 2; 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
