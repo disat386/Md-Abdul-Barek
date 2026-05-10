@@ -28,70 +28,65 @@ export async function exportToVideo(
   const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
   const audioDestination = audioContext.createMediaStreamDestination();
   
-  // Load all audio chunks or fall back to the single audioUrl
-  const audioBuffers: (AudioBuffer | null)[] = [];
-  const useMultiAudio = scenes.some(s => s.audioUrl && s.audioUrl !== 'MULTI_SCENE_AUDIO' && s.audioUrl.length > 10);
+  // Load and deduplicate audio URLs
+  const uniqueAudioUrls = Array.from(new Set(scenes.map(s => s.audioUrl).filter(Boolean)));
+  const useMultiAudio = uniqueAudioUrls.length > 1 && uniqueAudioUrls.every(url => url !== 'MULTI_SCENE_AUDIO' && url!.length > 10);
+  
+  // Also check if we are in "Segment" mode where all scenes share ONE part-specific URL
+  const isSegmentMode = uniqueAudioUrls.length === 1 && uniqueAudioUrls[0] !== 'MULTI_SCENE_AUDIO' && uniqueAudioUrls[0]!.length > 10;
 
+  const audioBuffers: (AudioBuffer | null)[] = [];
+  
   if (useMultiAudio) {
+    // Independent scene audio mode
     for (let i = 0; i < scenes.length; i++) {
-      onProgress?.({ progress: 5 + Math.floor((i / scenes.length) * 5), status: `Buffering audio scene ${i+1}...` });
-      if (scenes[i].audioUrl && scenes[i].audioUrl !== 'MULTI_SCENE_AUDIO') {
-        try {
-          const res = await fetch(scenes[i].audioUrl!);
-          const arrayBuffer = await res.arrayBuffer();
-          const buffer = await audioContext.decodeAudioData(arrayBuffer);
-          audioBuffers.push(buffer);
-        } catch (e) {
-          console.error(`Failed to load audio for scene ${i}`, e);
-          audioBuffers.push(null);
+        if (scenes[i].audioUrl && scenes[i].audioUrl !== 'MULTI_SCENE_AUDIO') {
+            try {
+                const res = await fetch(scenes[i].audioUrl!);
+                const arrayBuffer = await res.arrayBuffer();
+                const buffer = await audioContext.decodeAudioData(arrayBuffer);
+                audioBuffers.push(buffer);
+            } catch (e) {
+                audioBuffers.push(null);
+            }
+        } else {
+            audioBuffers.push(null);
         }
-      } else {
-        audioBuffers.push(null);
-      }
     }
   } else {
-    // Fallback to single audioUrl mode
+    // Single master audio or Segment mode
+    const urlToFetch = isSegmentMode ? uniqueAudioUrls[0]! : audioUrlFallback;
     try {
-      const res = await fetch(audioUrlFallback);
+      const res = await fetch(urlToFetch);
       const arrayBuffer = await res.arrayBuffer();
       const buffer = await audioContext.decodeAudioData(arrayBuffer);
       audioBuffers.push(buffer);
     } catch (e) {
-      console.error("Failed to load fallback audio", e);
+      console.error("Failed to load audio for reel", e);
     }
   }
 
   // Calculate duration and scene timings
   let totalDuration = 0;
-  const sceneDurations = audioBuffers.map(b => b?.duration || 5); // Default 5s if missing
   const sceneStartTimes: number[] = [];
   
   if (useMultiAudio) {
     let current = 0;
-    for (let d of sceneDurations) {
-      sceneStartTimes.push(current);
-      current += d;
-    }
+    audioBuffers.forEach((b, i) => {
+        sceneStartTimes.push(current);
+        current += b?.duration || 5;
+    });
     totalDuration = current;
   } else {
+    // Shared Audio Mode (Master Reel or Segment)
     totalDuration = audioBuffers[0]?.duration || 10;
-    const anyHasDuration = (scenes as any[]).some(s => s.audioDuration > 0);
-    
-    if (anyHasDuration) {
-      let current = 0;
-      scenes.forEach(scene => {
-        sceneStartTimes.push(current);
-        current += (scene as any).audioDuration || (totalDuration / scenes.length);
-      });
-    } else {
-      const totalCharCount = scenes.reduce((sum, s) => sum + s.narration.length, 0);
-      let current = 0;
-      scenes.forEach(scene => {
-        sceneStartTimes.push(current);
-        const sceneWeight = scene.narration.length / totalCharCount || (1 / scenes.length);
-        current += sceneWeight * totalDuration;
-      });
-    }
+    const totalCharCount = scenes.reduce((sum, s) => sum + s.narration.length, 0) || 1;
+    let current = 0;
+    scenes.forEach(scene => {
+      sceneStartTimes.push(current);
+      const sceneWeight = scene.narration.length / totalCharCount;
+      current += sceneWeight * totalDuration;
+    });
   }
 
   onProgress?.({ progress: 10, status: 'Initializing cinematic renderer...' });
@@ -145,15 +140,41 @@ export async function exportToVideo(
 
   // 4. Setup Recording
   const canvasStream = canvas.captureStream(30); 
+  
+  // Ensure we have audio tracks even if synthesis is slow
+  const audioTracks = audioDestination.stream.getAudioTracks();
+  if (audioTracks.length === 0) {
+    console.warn("No audio tracks found in destination stream, creating silent track fallback");
+    const oscillator = audioContext.createOscillator();
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
+    oscillator.connect(silentGain);
+    silentGain.connect(audioDestination);
+    oscillator.start();
+  }
+
   const combinedStream = new MediaStream([
     ...canvasStream.getVideoTracks(),
     ...audioDestination.stream.getAudioTracks()
   ]);
 
+  const getSupportedMimeType = () => {
+    const types = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h264,opus',
+      'video/webm',
+      'video/mp4'
+    ];
+    for (const type of types) {
+      if (MediaRecorder.isTypeSupported(type)) return type;
+    }
+    return '';
+  };
+
+  const mimeType = getSupportedMimeType();
   const recorder = new MediaRecorder(combinedStream, {
-    mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') 
-      ? 'video/webm;codecs=vp9' 
-      : 'video/webm',
+    mimeType: mimeType || undefined,
     videoBitsPerSecond: 8000000
   });
 
@@ -185,7 +206,8 @@ export async function exportToVideo(
               const source = audioContext.createBufferSource();
               source.buffer = buffer;
               source.connect(audioDestination);
-              source.connect(audioContext.destination);
+              // Commented out to prevent audio playing during export
+              // source.connect(audioContext.destination);
               source.start(audioContext.currentTime + sceneStartTimes[i]);
             }
           });
@@ -193,7 +215,8 @@ export async function exportToVideo(
           const source = audioContext.createBufferSource();
           source.buffer = audioBuffers[0];
           source.connect(audioDestination);
-          source.connect(audioContext.destination);
+          // Commented out to prevent audio playing during export
+          // source.connect(audioContext.destination);
           source.start(audioContext.currentTime);
         }
 
@@ -201,6 +224,7 @@ export async function exportToVideo(
         playStartTime = performance.now();
         render();
       } catch (e) {
+        console.error("Video production startup failed:", e);
         reject(e);
       }
     };

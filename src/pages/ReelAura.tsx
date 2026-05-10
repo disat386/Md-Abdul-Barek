@@ -171,10 +171,16 @@ export default function ReelAura({ profile }: { profile: any }) {
     if (workingScenes.length === 0) throw new Error("No scenes found for this part.");
 
     // Check if scenes have individual audio or we need to use a master chunk
-    const firstAudio = workingScenes[0].audioUrl;
-    const effectiveAudioUrl = (firstAudio && firstAudio !== 'MULTI_SCENE_AUDIO') ? firstAudio : audioUrl;
+    const firstAudioUrl = workingScenes[0].audioUrl;
+    // If it's a part-based story, the scenes for a part share the same URL. 
+    // We should treat it as a single audio export for that part to avoid multi-synth issues in the recorder.
+    const effectiveAudioUrl = (firstAudioUrl && firstAudioUrl !== 'MULTI_SCENE_AUDIO') ? firstAudioUrl : audioUrl;
 
-    const videoBlob = await exportToVideo(workingScenes, effectiveAudioUrl, {
+    // Filter out scenes that might not have images to prevent export crash
+    const validatedScenes = workingScenes.filter(s => s.imageUrl);
+    if (validatedScenes.length === 0) throw new Error("No scenes with valid images found for this segment.");
+
+    const videoBlob = await exportToVideo(validatedScenes, effectiveAudioUrl, {
       aspectRatio: 'reel',
       onProgress: (p) => setExportProgress(p)
     });
@@ -938,17 +944,17 @@ export default function ReelAura({ profile }: { profile: any }) {
       }
 
       const stepsList = [
-        "Analyzing 7s high-impact visual sync...",
+        "Analyzing Segment sync...",
         "Applying viral color grading...",
-        "Arranging vertical storyboard assets...",
-        "Mixing high-energy soundscapes...",
-        "Finalizing mobile-optmized render..."
+        "Arranging storyboard assets...",
+        "Mixing optimized soundscapes...",
+        "Finalizing production render..."
       ];
 
       for (let i = 0; i < stepsList.length; i++) {
         setStatusMessage(stepsList[i]);
-        const stepDuration = 1500; // ms per step
-        const ticks = 15;
+        const stepDuration = 800; // Faster simulation 1.5s -> 0.8s
+        const ticks = 8;
         const tickMs = stepDuration / ticks;
         
         for (let t = 0; t < ticks; t++) {
@@ -956,8 +962,8 @@ export default function ReelAura({ profile }: { profile: any }) {
           const totalProgress = (i * 20) + stepProgress;
           setProgress(totalProgress);
           
-          if (t === 7 && currentPid) {
-             await updateDoc(doc(db, 'projects', currentPid), { progress: totalProgress });
+          if (t === 4 && currentPid) {
+             updateDoc(doc(db, 'projects', currentPid), { progress: totalProgress }).catch(console.warn);
           }
           await new Promise(r => setTimeout(r, tickMs));
         }
@@ -2008,9 +2014,10 @@ export default function ReelAura({ profile }: { profile: any }) {
                        {videoUrl ? (
                          <div className="w-full h-full flex flex-col items-center">
                             <ProductionPlayer 
+                              key={isPartStory ? `preview-segment-${currentPreviewPart}` : 'preview-full-master'}
                               scenes={isPartStory ? scenes.filter(s => s.partIndex === currentPreviewPart) : scenes}
                               audioUrl={isPartStory ? (scenes.find(s => s.partIndex === currentPreviewPart)?.audioUrl || audioUrl) : audioUrl}
-                              title={isPartStory ? `${topic} - Part ${currentPreviewPart}` : topic}
+                              title={isPartStory ? `${topic} - Segment ${currentPreviewPart}` : topic}
                               aspectRatio="reel"
                               numParts={isPartStory ? numParts : 1}
                               onDownload={() => handleExportVideo(isPartStory ? currentPreviewPart : undefined)}
