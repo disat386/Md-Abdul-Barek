@@ -164,8 +164,12 @@ export async function exportToVideo(
   }
 
   // 4. Setup Recording
-  const canvasStream = canvas.captureStream(30); 
+  const canvasStream = (canvas as any).captureStream ? (canvas as any).captureStream(30) : (canvas as any).mozCaptureStream ? (canvas as any).mozCaptureStream(30) : null;
   
+  if (!canvasStream) {
+    throw new Error("Your browser does not support canvas video capture.");
+  }
+
   // Ensure we have audio tracks even if synthesis is slow
   const audioTracks = audioDestination.stream.getAudioTracks();
   if (audioTracks.length === 0) {
@@ -178,16 +182,21 @@ export async function exportToVideo(
     oscillator.start();
   }
 
-  const combinedStream = new MediaStream([
-    ...canvasStream.getVideoTracks(),
-    ...audioDestination.stream.getAudioTracks()
-  ]);
+  // Combine streams
+  const combinedStream = new MediaStream();
+  canvasStream.getVideoTracks().forEach((t: MediaStreamTrack) => combinedStream.addTrack(t));
+  audioDestination.stream.getAudioTracks().forEach((t: MediaStreamTrack) => combinedStream.addTrack(t));
+
+  if (combinedStream.getVideoTracks().length === 0) {
+    throw new Error("Critical Failure: Video track initialization failed.");
+  }
 
   const getSupportedMimeType = () => {
     const types = [
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
       'video/webm;codecs=h264,opus',
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
       'video/webm',
       'video/mp4'
     ];
@@ -216,8 +225,10 @@ export async function exportToVideo(
 
   return new Promise((resolve, reject) => {
     recorder.onstop = () => {
+      console.log("Auurio: Production stopped, compiling chunks...");
+      onProgress?.({ progress: 100, status: 'Perfecting export...' });
       const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
-      audioContext.close();
+      audioContext.close().catch(() => {});
       resolve(blob);
     };
 
@@ -228,6 +239,7 @@ export async function exportToVideo(
 
     // Start Audio Playback Sequence
     let playStartTime = 0;
+    let renderTimer: any = null;
     
     const startRecording = async () => {
       try {
@@ -242,7 +254,7 @@ export async function exportToVideo(
               const source = audioContext.createBufferSource();
               source.buffer = buffer;
               source.connect(audioDestination);
-              source.start(audioContext.currentTime + sceneStartTimes[i]);
+              source.start(audioContext.currentTime + (sceneStartTimes[i] || 0));
               loadedCount++;
             }
           });
@@ -255,6 +267,9 @@ export async function exportToVideo(
           console.log("Auurio: Scheduled master master track");
         }
 
+        // Draw initial frame to "kickstart" the stream
+        renderFrame(0);
+
         // Check if stream is active
         if (!combinedStream.active) {
           throw new Error("Target stream is inactive. Check camera/audio permissions.");
@@ -266,30 +281,51 @@ export async function exportToVideo(
         
         // Safety timeout to prevent infinite hanging
         const maxDuration = (totalDuration + 15) * 1000;
-        setTimeout(() => {
+        const safetyTimeout = setTimeout(() => {
           if (recorder.state === 'recording') {
             console.warn("Auurio: Production auto-stopped after timeout safeguard");
-            recorder.stop();
+            stopProduction();
           }
         }, maxDuration);
 
-        render();
+        // Use a high-frequency interval for rendering to be more resilient than RAF
+        // but still use RAF for smoothness if possible
+        const tick = () => {
+          if (recorder.state === 'inactive') {
+            if (renderTimer) clearInterval(renderTimer);
+            clearTimeout(safetyTimeout);
+            return;
+          }
+          
+          const time = (performance.now() - playStartTime) / 1000;
+          if (time >= totalDuration) {
+            stopProduction();
+            return;
+          }
+          
+          renderFrame(time);
+          renderTimer = requestAnimationFrame(tick);
+        };
+        
+        tick();
+
       } catch (e) {
         console.error("Auurio: Production failure:", e);
         reject(new Error(`Production failed: ${e instanceof Error ? e.message : 'Unknown error'}`));
       }
     };
 
-    const render = () => {
-      if (recorder.state === 'inactive') return;
-      
-      const time = (performance.now() - playStartTime) / 1000;
+    const stopProduction = () => {
+       if (recorder.state === 'recording') {
+         recorder.stop();
+       }
+       if (renderTimer) {
+         cancelAnimationFrame(renderTimer);
+         renderTimer = null;
+       }
+    };
 
-      if (time >= totalDuration) {
-        if (recorder.state === 'recording') recorder.stop();
-        return;
-      }
-      
+    const renderFrame = (time: number) => {
       const sceneIndex = sceneStartTimes.findLastIndex(startTime => time >= startTime);
       const activeIndex = sceneIndex === -1 ? 0 : sceneIndex;
       const img = loadedImages[activeIndex];
@@ -302,7 +338,7 @@ export async function exportToVideo(
         const sceneStartTime = sceneStartTimes[activeIndex];
         const sceneEnd = activeIndex < sceneStartTimes.length - 1 ? sceneStartTimes[activeIndex+1] : totalDuration;
         const sDur = sceneEnd - sceneStartTime;
-        const sceneProgress = Math.min((time - sceneStartTime) / sDur, 1);
+        const sceneProgress = Math.min((time - sceneStartTime) / (sDur || 1), 1);
         
         const moveType = activeIndex % 8;
         let scale: number;
@@ -334,13 +370,10 @@ export async function exportToVideo(
         ctx.drawImage(img, x, y, drawWidth, drawHeight);
       }
 
-      // Overlays & Text REMOVED
       onProgress?.({ 
         progress: 40 + Math.floor((time / totalDuration) * 55), 
-        status: `Capturing Production: ${Math.floor((time / totalDuration) * 100)}%` 
+        status: `Capturing Production: ${Math.min(Math.floor((time / totalDuration) * 100), 99)}%` 
       });
-
-      requestAnimationFrame(render);
     };
 
     startRecording();

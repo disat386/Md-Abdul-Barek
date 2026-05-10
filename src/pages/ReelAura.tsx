@@ -182,19 +182,31 @@ export default function ReelAura({ profile }: { profile: any }) {
 
     const videoBlob = await exportToVideo(validatedScenes, effectiveAudioUrl, {
       aspectRatio: 'reel',
-      onProgress: (p) => setExportProgress(p)
+      onProgress: (p) => {
+        if (isExporting) setExportProgress(p);
+      }
     });
+
+    if (videoBlob.size < 1000) {
+      throw new Error("Production engine failed to capture valid video data (File too small).");
+    }
     
+    const extension = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
     const url = URL.createObjectURL(videoBlob);
     const a = document.createElement('a');
     a.href = url;
     const filename = targetPartIndex 
-      ? `Auurio_Reel_Segment${targetPartIndex}_${Date.now()}.webm`
-      : `Auurio_Full_Reel_${Date.now()}.webm`;
+      ? `Auurio_Reel_Segment${targetPartIndex}_${Date.now()}.${extension}`
+      : `Auurio_Full_Reel_${Date.now()}.${extension}`;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    
+    // Cleanup with delay to ensure download starts
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 10000);
     
     await creditService.deduct(profile.uid, CREDIT_COSTS.VIDEO_PRODUCTION, 'REEL_EXPORT');
   };
@@ -241,12 +253,17 @@ export default function ReelAura({ profile }: { profile: any }) {
     
     try {
       for (let i = 0; i < readyParts.length; i++) {
+        // If user cancelled overlay, stop the loop
+        if (!isExporting) break;
+
         const pNum = readyParts[i];
         setExportProgress({ progress: 0, status: `Batch Production: Segment ${pNum} (${i+1}/${readyParts.length})` });
         await performVideoExport(pNum);
+        
         // Safety delay to prevent browser download restrictions/UI freezing
         if (i < readyParts.length - 1) {
-          await new Promise(r => setTimeout(r, 2000));
+          setStatusMessage(`Segment ${pNum} exported! Next in queue...`);
+          await new Promise(r => setTimeout(r, 5000)); // 5s delay for stability
         }
       }
       setStatusMessage("All deliverables exported successfully!");
@@ -1126,7 +1143,22 @@ export default function ReelAura({ profile }: { profile: any }) {
             />
             
             <div className="relative z-10 w-full max-w-sm space-y-6">
-              <Download className="w-12 h-12 text-red-600 mx-auto animate-bounce" />
+              <div className="relative">
+                <Download className="w-12 h-12 text-red-600 mx-auto animate-bounce" />
+                <button 
+                  onClick={() => {
+                    setIsExporting(false);
+                    // Force refresh page effectively or just stop? 
+                    // Better to just hide and let the old process die/complete in background
+                    setExportProgress(null);
+                    setError("Export cancelled by user.");
+                  }}
+                  className="absolute -top-4 -right-4 p-2 bg-white/5 hover:bg-white/10 rounded-full text-zinc-500 hover:text-white transition-all"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
               <div className="space-y-1">
                 <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">Encoding Production</h2>
                 <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-relaxed">
@@ -1141,7 +1173,16 @@ export default function ReelAura({ profile }: { profile: any }) {
                   animate={{ width: `${exportProgress.progress}%` }}
                 />
               </div>
-              <p className="text-[9px] text-zinc-600 font-medium italic">Please stay on this tab while we render your cinematic master.</p>
+              
+              <div className="space-y-4">
+                <p className="text-[9px] text-zinc-600 font-medium italic">Please stay on this tab while we render your cinematic master.</p>
+                <button 
+                  onClick={() => setIsExporting(false)}
+                  className="text-[10px] font-black uppercase text-zinc-500 hover:text-white tracking-widest underline underline-offset-4"
+                >
+                  Force Close Overlay
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -2144,6 +2185,15 @@ export default function ReelAura({ profile }: { profile: any }) {
                                 <div className="h-full bg-red-500 transition-all duration-300" style={{ width: `${progress}%` }} />
                              </div>
                              <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">{progress}% Finalizing</p>
+                             <button
+                               onClick={() => {
+                                 setActiveStep('visuals');
+                                 setIsLoading(false);
+                               }}
+                               className="text-[9px] font-black text-zinc-600 hover:text-white uppercase tracking-widest underline mt-4 transition-colors"
+                             >
+                               Cancel & Go Back
+                             </button>
                           </div>
                         </div>
                        )}
