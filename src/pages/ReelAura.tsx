@@ -112,6 +112,10 @@ export default function ReelAura({ profile }: { profile: any }) {
   const [statusMessage, setStatusMessage] = useState('');
   const [projectId, setProjectId] = useState<string | null>(null);
 
+  const scenesRef = useRef<Scene[]>([]);
+  useEffect(() => {
+    scenesRef.current = scenes;
+  }, [scenes]);
 
   const isProjectLoading = useRef(false);
 
@@ -179,7 +183,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     const a = document.createElement('a');
     a.href = url;
     const filename = targetPartIndex 
-      ? `Auurio_Reel_Part${targetPartIndex}_${Date.now()}.webm`
+      ? `Auurio_Reel_Segment${targetPartIndex}_${Date.now()}.webm`
       : `Auurio_Full_Reel_${Date.now()}.webm`;
     a.download = filename;
     document.body.appendChild(a);
@@ -193,7 +197,7 @@ export default function ReelAura({ profile }: { profile: any }) {
     if (scenes.length === 0) return;
     
     setIsExporting(true);
-    const statusLabel = targetPartIndex ? `Finalizing Part ${targetPartIndex}...` : 'Finalizing Full Reel Master...';
+    const statusLabel = targetPartIndex ? `Finalizing Segment ${targetPartIndex}...` : 'Finalizing Full Reel Master...';
     setExportProgress({ progress: 0, status: statusLabel });
     
     try {
@@ -222,12 +226,12 @@ export default function ReelAura({ profile }: { profile: any }) {
     }
 
     setIsExporting(true);
-    setStatusMessage(`Initializing batch export of ${readyParts.length} parts...`);
+    setStatusMessage(`Initializing batch export of ${readyParts.length} segments...`);
     
     try {
       for (let i = 0; i < readyParts.length; i++) {
         const pNum = readyParts[i];
-        setExportProgress({ progress: 0, status: `Batch Export: Part ${pNum} (${i+1}/${readyParts.length})` });
+        setExportProgress({ progress: 0, status: `Batch Production: Segment ${pNum} (${i+1}/${readyParts.length})` });
         await performVideoExport(pNum);
         // Safety delay to prevent browser download restrictions/UI freezing
         if (i < readyParts.length - 1) {
@@ -527,7 +531,7 @@ export default function ReelAura({ profile }: { profile: any }) {
           
           if (!cleanPartText || cleanPartText.length < 2) continue;
 
-          setStatusMessage(`Synthesizing Part ${partIdx}/${partMatches.length}...`);
+          setStatusMessage(`Synthesizing Segment ${partIdx}/${partMatches.length}...`);
           const res = await aiService.generateAudio(cleanPartText, voice, language, {
             pitch: voiceTone,
             speed: voiceSpeed,
@@ -633,7 +637,7 @@ export default function ReelAura({ profile }: { profile: any }) {
   };
 
   const handleGenerateVisuals = async (passedScenes?: Scene[] | React.MouseEvent) => {
-    const workingScenes = Array.isArray(passedScenes) ? passedScenes : scenes;
+    const workingScenes = Array.isArray(passedScenes) ? passedScenes : [...scenes];
     if (workingScenes.length === 0) return;
 
     // Fast transition if all workingScenes already have images
@@ -641,9 +645,9 @@ export default function ReelAura({ profile }: { profile: any }) {
     if (!hasAnyMissing) {
       setStatusMessage('Storyboard already perfected! Starting Production...');
       setProgress(100);
+      setIsLoading(false);
+      setActiveStep('video');
       setTimeout(() => {
-        setIsLoading(false);
-        setActiveStep('video');
         handleAssembleVideo();
         setStatusMessage('');
       }, 500);
@@ -656,20 +660,22 @@ export default function ReelAura({ profile }: { profile: any }) {
     setStatusMessage('Mastering visual aesthetic engine...');
     saveProjectState({ status: 'processing' });
     
+    let localScenes = [...workingScenes];
+
     try {
       const hasCredits = await creditService.checkBalance(profile.uid, CREDIT_COSTS.IMAGE_GENERATION);
       if (!hasCredits) throw new Error('Insufficient credits.');
 
-      const totalScenes = workingScenes.length;
-      let completedCount = workingScenes.filter(s => s.imageUrl && s.status.visual === 'done').length;
+      const totalScenes = localScenes.length;
+      let completedCount = localScenes.filter(s => s.imageUrl && s.status.visual === 'done').length;
 
       // Initial progress set
       setProgress(Math.floor((completedCount / totalScenes) * 100));
 
       // Controlled parallelism (Concurrency 5) for Reels to ensure high-speed but stable production
-      const CONCURRENCY = 5;
+      const CONCURRENCY = 4; // Slightly lower concurrency for more stability
       for (let i = 0; i < totalScenes; i += CONCURRENCY) {
-        const batch = workingScenes.slice(i, i + CONCURRENCY);
+        const batch = localScenes.slice(i, i + CONCURRENCY);
         const batchIndices = Array.from({ length: batch.length }, (_, k) => i + k);
 
         await Promise.all(batch.map(async (scene, batchIdx) => {
@@ -679,24 +685,19 @@ export default function ReelAura({ profile }: { profile: any }) {
             return;
           }
 
-          setScenes(prev => {
-            const next = [...prev];
-            next[index] = { ...next[index], status: { ...next[index].status, visual: 'processing' } };
-            return next;
-          });
+          localScenes[index] = { ...localScenes[index], status: { ...localScenes[index].status, visual: 'processing' } };
+          setScenes([...localScenes]);
 
           try {
             const url = await generateSingleSceneImage(scene);
             
-            setScenes(prev => {
-              const next = [...prev];
-              next[index] = { 
-                ...next[index], 
-                imageUrl: url, 
-                status: { ...next[index].status, visual: 'done' } 
-              };
-              return next;
-            });
+            localScenes[index] = { 
+              ...localScenes[index], 
+              imageUrl: url, 
+              status: { ...localScenes[index].status, visual: 'done' } 
+            };
+            
+            setScenes([...localScenes]);
             
             setImages(prev => {
               const next = [...prev];
@@ -708,84 +709,64 @@ export default function ReelAura({ profile }: { profile: any }) {
             setProgress(Math.round((completedCount / totalScenes) * 100));
           } catch (err) {
             console.error(`Failed to generate Reel frame ${index}:`, err);
-            setScenes(prev => {
-              const next = [...prev];
-              next[index] = { ...next[index], status: { ...next[index].status, visual: 'error' } };
-              return next;
-            });
+            localScenes[index] = { ...localScenes[index], status: { ...localScenes[index].status, visual: 'error' } };
+            setScenes([...localScenes]);
           }
         }));
         
         if (i + CONCURRENCY < totalScenes) {
-          // Dynamic delay - shorten if we are just starting or already done
-          await new Promise(r => setTimeout(r, 300));
+          await new Promise(r => setTimeout(r, 400));
         }
       }
 
       setStatusMessage('Deducting rendering fees...');
-      await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
+      try {
+        await creditService.deduct(profile.uid, CREDIT_COSTS.IMAGE_GENERATION, 'VISUAL_GENERATION');
+      } catch (e) {
+        console.warn("Credit deduction failed but continuing...", e);
+      }
       
-      // MANDATORY RESCUE PASS: Identity and heal any missing frames before finishing
-      setStatusMessage('Final visual sync & verification...');
-      let rescuePasses = 0;
-      const MAX_RESCUE_PASSES = 3;
+      // FINAL VERIFICATION PASS
+      setStatusMessage('Final visual sync...');
+      const missingCount = localScenes.filter(s => !s.imageUrl).length;
       
-      while (rescuePasses < MAX_RESCUE_PASSES) {
-        // Check for missing images using a functional update to get freshest current state
-        let currentStatusScenes: Scene[] = [];
-        await new Promise<void>(resolve => {
-          setScenes(s => { currentStatusScenes = s; resolve(); return s; });
-        });
-
-        const failedIndices = currentStatusScenes
+      if (missingCount > 0) {
+        // Try rescue for failures
+        const failedIndices = localScenes
           .map((s, idx) => (!s.imageUrl || s.status.visual !== 'done') ? idx : -1)
           .filter(idx => idx !== -1);
           
-        if (failedIndices.length === 0) break;
-        
-        rescuePasses++;
-        setStatusMessage(`Repairing ${failedIndices.length} frames (Pass ${rescuePasses})...`);
-        
-        // Parallelized Rescue for vertical speed
-        await Promise.all(failedIndices.map(async (idx) => {
-          try {
-            const sceneData = currentStatusScenes[idx];
-            const url = await generateSingleSceneImage(sceneData);
-            setScenes(prev => {
-              const next = [...prev];
-              next[idx] = { ...next[idx], imageUrl: url, status: { ...next[idx].status, visual: 'done' } };
-              return next;
-            });
-            completedCount++;
-            setProgress(Math.round((completedCount / totalScenes) * 100));
-          } catch (e) {
-            console.error(`Rescue attempt ${rescuePasses} failed for ${idx}`, e);
-          }
-        }));
+        if (failedIndices.length > 0) {
+          setStatusMessage(`Repairing ${failedIndices.length} frames...`);
+          await Promise.all(failedIndices.slice(0, 5).map(async (idx) => { // Limit rescue batch
+            try {
+              const url = await generateSingleSceneImage(localScenes[idx]);
+              localScenes[idx] = { ...localScenes[idx], imageUrl: url, status: { ...localScenes[idx].status, visual: 'done' } };
+              setScenes([...localScenes]);
+              completedCount++;
+              setProgress(Math.round((completedCount / totalScenes) * 100));
+            } catch (e) {
+              console.error(`Rescue failed for ${idx}`, e);
+            }
+          }));
+        }
       }
 
-      // Final Check
-      const trulyFinalScenes = await new Promise<Scene[]>(resolve => {
-        setScenes(s => { resolve(s); return s; });
-      });
-      const finalMissing = trulyFinalScenes.some(s => !s.imageUrl);
+      const finalMissing = localScenes.some(s => !s.imageUrl);
 
       if (!finalMissing) {
         setStatusMessage('Storyboard Perfected!');
         setProgress(100);
         
-        // Update project status in DB so resume logic handles it correctly
-        try {
-          await saveProjectState({ 
-            scenes: trulyFinalScenes,
-            status: 'ready', 
-            progress: 100,
-            activeStep: 'video' 
-          });
-        } catch (e) {
-          console.warn("Reel DB update failure", e);
-        }
+        // Background DB Update
+        saveProjectState({ 
+          scenes: localScenes,
+          status: 'ready', 
+          progress: 100,
+          activeStep: 'video' 
+        }).catch(e => console.warn("Background DB sync failed", e));
 
+        // FAST UI TRANSITION
         setIsLoading(false);
         setActiveStep('video');
         setTimeout(() => {
@@ -801,10 +782,10 @@ export default function ReelAura({ profile }: { profile: any }) {
       setError(err.message || "Visual generation failed.");
       setIsLoading(false);
     } finally {
-      // Ensure we don't leave the UI in a loading state if we didn't transition
+      // Safety release
       setTimeout(() => {
         setIsLoading(prev => prev ? false : prev);
-      }, 5000);
+      }, 3000);
     }
   };
 
@@ -1649,7 +1630,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                         className="text-[10px] font-black text-white hover:scale-105 active:scale-95 uppercase tracking-widest flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-2 rounded-xl transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50"
                       >
                         <Download size={14} className={isExporting ? "animate-bounce" : ""} />
-                        Export All Parts
+                        Export All Segments
                       </button>
                     </div>
                     
@@ -1678,7 +1659,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                                   {pNum}
                                 </div>
                                 <div>
-                                  <h4 className="text-[11px] font-black text-white uppercase tracking-tighter">PART {pNum}</h4>
+                                  <h4 className="text-[11px] font-black text-white uppercase tracking-tighter">SEGMENT {pNum}</h4>
                                   <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">{isReady ? 'Production Ready' : 'In Progress'}</p>
                                 </div>
                              </div>
@@ -1779,7 +1760,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                             if (!isPartStory) return fullScript;
                             const regex = new RegExp(`\\[PART ${pNum} START\\]([\\s\\S]*?)\\[PART ${pNum} END\\]`, 'i');
                             const match = fullScript.match(regex);
-                            return match ? match[1].trim() : "Part content not found...";
+                            return match ? match[1].trim() : "Segment content not found...";
                           };
 
                           const handlePartEdit = (newText: string) => {
@@ -1806,7 +1787,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                                     <div className="w-8 h-8 rounded-xl bg-red-600 flex items-center justify-center text-white text-xs font-black italic shadow-lg shadow-red-600/20">
                                       {pNum}
                                     </div>
-                                    <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">EPISODE PART {pNum}</h3>
+                                    <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">EPISODE SEGMENT {pNum}</h3>
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Story flow ready</span>
@@ -1819,10 +1800,10 @@ export default function ReelAura({ profile }: { profile: any }) {
                                     value={getPartContent()}
                                     onChange={(e) => handlePartEdit(e.target.value)}
                                     className="w-full bg-zinc-900/40 border border-white/5 rounded-[32px] p-8 text-lg md:text-xl text-zinc-300 focus:text-white leading-relaxed font-bold outline-none ring-0 focus:border-red-500/30 transition-all resize-none min-h-[300px] shadow-2xl backdrop-blur-sm"
-                                    placeholder={`Write Part ${pNum} content here...`}
+                                    placeholder={`Write Segment ${pNum} content here...`}
                                   />
                                   <div className="absolute top-4 right-8 flex gap-2">
-                                     <span className="text-[8px] font-black text-zinc-700 uppercase tracking-widest">PART {pNum} MASTER BLOCK</span>
+                                     <span className="text-[8px] font-black text-zinc-700 uppercase tracking-widest">SEGMENT {pNum} MASTER BLOCK</span>
                                   </div>
                                 </div>
 
@@ -1896,7 +1877,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                                     <span className="text-xl font-black text-red-500 italic">{pNum}</span>
                                   </div>
                                   <div className="flex-1 text-center sm:text-left">
-                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1 italic">{isPartStory ? `PART ${pNum} MASTER` : 'FULL REEL MASTER'}</h4>
+                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1 italic">{isPartStory ? `SEGMENT ${pNum} MASTER` : 'FULL REEL MASTER'}</h4>
                                     <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Neural Narration Audio</p>
                                   </div>
                                   {pAudio && pAudio !== '' && pAudio !== 'READY' ? (
@@ -1961,7 +1942,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                              <div key={pNum} className="space-y-6">
                                <div className="flex items-center gap-4 px-1">
                                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                                 <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">PART {pNum} FRAMES</span>
+                                 <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic tracking-[0.3em]">EPISODIC VISUAL SEQUENCE {pNum}</span>
                                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                                </div>
 
@@ -1987,7 +1968,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                                               {scene.isHook && <span className="px-2 py-0.5 bg-yellow-400 text-black text-[7px] font-black uppercase rounded-full">Hook</span>}
                                               {scene.isCliffhanger && <span className="px-2 py-0.5 bg-red-600 text-white text-[7px] font-black uppercase rounded-full">Loop</span>}
                                             </div>
-                                            <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Part {pNum} 0{i+1}</span>
+                                            <span className="text-[9px] font-black text-zinc-500/50 uppercase tracking-[0.2em] italic">FRAME 0{i+1}</span>
                                             <button 
                                               onClick={() => handleRegenerateScene(scenes.findIndex(s => s.id === scene.id))}
                                               className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white text-[9px] font-black uppercase tracking-widest rounded-2xl backdrop-blur-xl border border-white/10 transition-all flex items-center justify-center gap-2"
@@ -2065,7 +2046,7 @@ export default function ReelAura({ profile }: { profile: any }) {
                                  disabled={isExporting}
                                  className="px-10 py-5 bg-red-600 text-white font-black uppercase tracking-tighter rounded-full hover:bg-red-500 transition-all flex items-center gap-3 shadow-2xl shadow-red-600/20 active:scale-95 disabled:opacity-50"
                                >
-                                 <Download size={20} /> {isPartStory ? `Export Part ${currentPreviewPart}` : 'Export Master Reel'}
+                                 <Download size={20} /> {isPartStory ? `Export Segment ${currentPreviewPart}` : 'Export Master Reel'}
                                </button>
                                <button
                                  onClick={() => setActiveStep('script')}
