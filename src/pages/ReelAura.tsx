@@ -192,28 +192,40 @@ export default function ReelAura({ profile }: { profile: any }) {
       if (!hasCredits) throw new Error('Insufficient credits.');
 
       const totalSeconds = isPartStory ? numParts * partLength : length * 60;
-      const frameCount = Math.max(8, Math.ceil(totalSeconds / 7));
+      const frameCount = Math.max(12, Math.ceil(totalSeconds / 6)); // Increased pacing for Reels
       
-      const prompt = `ACT AS A VIRAL CONTENT ARCHITECT & MASTER STORYTELLER.
-      Write a high-impact viral script in ${language} about: ${topic}.
+      const prompt = `ACT AS A VIRAL CONTENT ARCHITECT & SHORT-FORM RETENTION MASTER.
+      Write an ultra-high-energy, fast-paced viral script in ${language} about: ${topic}.
       
-      STORY REQUIREMENTS:
-      1. COHESION: One single, continuous narrative script. No scene breaks in the text.
-      2. VOICE: Designed for a realistic, expressive storyteller's voice with natural depth and clear pronunciation.
-      3. DURATION: The narrative must be optimized for a ${totalSeconds} second vertical video.
+      CONTENT STRATEGY:
+      - Use ultra-short, punchy sentences.
+      - Eliminate fluff. Every word must grab attention.
+      - Optimize for vertical storytelling.
       
+      STRUCTURE:
+      ${isPartStory ? `YOU MUST DIVIDE THIS INTO EXACTLY ${numParts} PARTS.
+      EACH PART MUST BE SELF-CONTAINED BUT CONNECTED.
+      TEMPLATE PER PART:
+      [PART X START]
+      [HOOK] (A mind-blowing, pattern-interrupt sentence to stop the scroll) [/HOOK]
+      [NARRATION] (The core high-energy revelations) [/NARRATION]
+      [CLIFFHANGER] (A suspenseful "open loop" that makes them search for Part X+1) [/CLIFFHANGER]
+      [PART X END]` : `One single continuous viral script with a strong hook at the 0.5s mark.`}
+
+      DURATION: Total script length must translate to roughly ${totalSeconds} seconds when spoken at 1.2x speed.
+
       OUTPUT FORMAT:
       [NARRATIVE]
-      (The full cohesive story script goes here in one block)
+      ${isPartStory ? `(ALL part blocks here in order)` : `(One master script block)`}
       [/NARRATIVE]
 
       [VISUALS]
-      1. [VISUAL] Cinematic vertical prompt 1
-      2. [VISUAL] Cinematic vertical prompt 2
-      ...
+      1. [VISUAL] High-impact vertical motion prompt 1
+      2. [VISUAL] High-impact vertical motion prompt 2
+      ... (provide at least one per 5-6 seconds)
       [/VISUALS]
 
-      CRITICAL: Visual descriptors should match the beats of the narrative but keep the narrative text itself as a single flow.`;
+      CRITICAL: Ensure [PART] markers are mathematically precise. Don't skip numbers.`;
 
       const generatedContent = await aiService.generateText(prompt, undefined, (status) => setStatusMessage(status));
       setFullScript(generatedContent);
@@ -274,31 +286,69 @@ export default function ReelAura({ profile }: { profile: any }) {
     }
   };
 
-  const processGeneratedContent = (fullNarration: string, visualPrompts: string[], frameCount: number, returnOnly = false) => {
-    // Split into segments for the reel timeline using robust character distribution
-    const totalChars = fullNarration.length;
-    const targetFrames = Math.max(visualPrompts.length, frameCount);
-    const charsPerSegment = Math.max(1, Math.floor(totalChars / targetFrames));
+  const partitionScript = (text: string, visuals: string[], frameCount: number): Scene[] => {
+    let parsedScenes: Scene[] = [];
     
-    const parsedScenes: Scene[] = Array.from({ length: targetFrames }).map((_, index) => {
-      const start = index * charsPerSegment;
-      let end = (index + 1) * charsPerSegment;
-      if (index === targetFrames - 1) end = totalChars;
+    if (isPartStory) {
+      // Robust regex to find Parts and then split them into scenes
+      const partRegex = /\[PART (\d+) START\]([\s\S]*?)\[PART \1 END\]/gi;
+      const matches = Array.from(text.matchAll(partRegex));
       
-      const segmentText = fullNarration.substring(start, end).trim();
+      if (matches.length > 0) {
+        matches.forEach((m, pIdx) => {
+          const rawContent = m[2].trim();
+          const cleanText = rawContent
+            .replace(/\[HOOK\]|\[\/HOOK\]|\[NARRATION\]|\[\/NARRATION\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '')
+            .trim();
+          
+          if (!cleanText) return;
+
+          const scenesPerPart = Math.ceil(frameCount / matches.length);
+          const segmentLen = Math.ceil(cleanText.length / scenesPerPart);
+          
+          for (let i = 0; i < scenesPerPart; i++) {
+            const start = i * segmentLen;
+            const end = (i + 1) * segmentLen;
+            const textSegment = cleanText.substring(start, end).trim();
+            if (textSegment.length < 3) continue;
+
+            parsedScenes.push({
+              id: Math.random().toString(36).substr(2, 9),
+              visualPrompt: visuals[parsedScenes.length] || `Part ${pIdx + 1} viral aesthetic segment`,
+              narration: textSegment,
+              imageUrl: '',
+              status: { story: 'done', voice: 'pending', visual: 'pending' }
+            });
+          }
+        });
+      }
+    }
+
+    // Fallback if not part story or parsing failed
+    if (parsedScenes.length === 0) {
+      const targetFrames = Math.max(visuals.length, frameCount);
+      const charsPerSegment = Math.max(1, Math.floor(text.length / targetFrames));
       
-      return {
-        id: Math.random().toString(36).substr(2, 9),
-        visualPrompt: visualPrompts[index] || "Vertical high impact cinematic",
-        narration: segmentText || "Captivating moment...",
-        imageUrl: '',
-        status: {
-          story: 'done',
-          voice: 'pending',
-          visual: 'pending'
-        }
-      };
-    });
+      parsedScenes = Array.from({ length: targetFrames }).map((_, index) => {
+        const start = index * charsPerSegment;
+        let end = (index + 1) * charsPerSegment;
+        if (index === targetFrames - 1) end = text.length;
+        
+        return {
+          id: Math.random().toString(36).substr(2, 9),
+          visualPrompt: visuals[index] || "Vertical high impact cinematic",
+          narration: text.substring(start, end).trim() || "Captivating moment...",
+          imageUrl: '',
+          status: { story: 'done', voice: 'pending', visual: 'pending' }
+        };
+      });
+    }
+
+    return parsedScenes;
+  };
+
+  const processGeneratedContent = (fullNarration: string, visualPrompts: string[], frameCount: number, returnOnly = false) => {
+    const parsedScenes = partitionScript(fullNarration, visualPrompts, frameCount);
 
     if (returnOnly) return parsedScenes;
 
@@ -308,40 +358,26 @@ export default function ReelAura({ profile }: { profile: any }) {
   };
 
   const handleConfirmScript = () => {
-    // Determine number of frames: 1 frame per 7.5 seconds for high-paced Reels
-    const estimatedSeconds = fullScript.length / 12;
+    // Determine target number of frames based on high-paced Reels logic
+    const estimatedSeconds = fullScript.length / 14; 
     const totalSeconds = isPartStory ? (numParts * partLength) : Math.max(length * 60, estimatedSeconds);
-    const targetFrames = Math.max(8, Math.ceil(totalSeconds / 7.5));
+    const targetFrames = Math.max(12, Math.ceil(totalSeconds / 6));
     
-    console.log(`Auurio: Partitioning Reel into ${targetFrames} frames (based on ~${Math.round(totalSeconds)}s)`);
+    console.log(`Auurio: Re-partitioning Reel into ${targetFrames} frames...`);
 
-    const totalChars = fullScript.length;
-    const charsPerSegment = Math.max(1, Math.floor(totalChars / targetFrames));
+    const currentVisuals = scenes.map(s => s.visualPrompt);
+    const updatedScenes = partitionScript(fullScript, currentVisuals, targetFrames);
     
-    setScenes(prev => {
-      const newScenes: Scene[] = Array.from({ length: targetFrames }).map((_, index) => {
-        const start = index * charsPerSegment;
-        let end = (index + 1) * charsPerSegment;
-        if (index === targetFrames - 1) end = totalChars;
-        
-        const segmentText = fullScript.substring(start, end).trim();
-        
-        const existingScene = prev[index];
-        return {
-          id: existingScene?.id || Math.random().toString(36).substr(2, 9),
-          visualPrompt: existingScene?.visualPrompt || "Vertical high impact cinematic motion still",
-          narration: segmentText || "...",
-          imageUrl: existingScene?.imageUrl || '',
-          status: {
-            story: 'done',
-            voice: 'pending',
-            visual: 'pending'
-          }
-        };
-      });
-      return newScenes;
+    // Preserve any existing images/status where possible
+    const finalizedScenes = updatedScenes.map((ns, idx) => {
+      const existing = scenes[idx];
+      if (existing && existing.narration === ns.narration) {
+        return existing;
+      }
+      return ns;
     });
 
+    setScenes(finalizedScenes);
     setActiveStep('voice');
   };
 
@@ -362,7 +398,9 @@ export default function ReelAura({ profile }: { profile: any }) {
         throw new Error("Viral script is missing or too short. Please refine in the editor.");
       }
 
-      const res = await aiService.generateAudio(fullScript, voice, language, {
+      const cleanScript = fullScript.replace(/\[PART \d+ START\]|\[PART \d+ END\]|\[NARRATION\]|\[\/NARRATION\]|\[HOOK\]|\[\/HOOK\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '').trim();
+      
+      const res = await aiService.generateAudio(cleanScript, voice, language, {
         onProgress: (p) => setProgress(p)
       });
       
@@ -384,14 +422,18 @@ export default function ReelAura({ profile }: { profile: any }) {
       });
 
       const totalDuration = await audioLoadPromise;
-      const frameDuration = totalDuration / scenes.length;
+      const totalChars = scenes.reduce((sum, s) => sum + s.narration.length, 0) || 1;
 
-      setScenes(prev => prev.map(s => ({
-        ...s,
-        audioUrl: 'MULTI_SCENE_AUDIO',
-        audioDuration: frameDuration, // Equal duration distribution for reliability
-        status: { ...s.status, voice: 'done' }
-      })));
+      setScenes(prev => prev.map(s => {
+        const weight = s.narration.length / totalChars;
+        const sDuration = Math.max(2, weight * totalDuration); // At least 2s per scene
+        return {
+          ...s,
+          audioUrl: 'MULTI_SCENE_AUDIO',
+          audioDuration: sDuration,
+          status: { ...s.status, voice: 'done' }
+        };
+      }));
 
       await creditService.deduct(profile.uid, CREDIT_COSTS.AUDIO_CONVERSION, 'VOICE_SYNTHESIS');
       setProgress(100);
