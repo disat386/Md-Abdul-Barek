@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Video, 
   Sparkles, 
@@ -107,7 +107,10 @@ export default function ReelAura({ profile }: { profile: any }) {
   const [projectId, setProjectId] = useState<string | null>(null);
 
 
+  const isProjectLoading = useRef(true);
+
   const saveProjectState = async (updates: any = {}) => {
+    if (isProjectLoading.current) return;
     const params = new URLSearchParams(window.location.search);
     const pid = projectId || params.get('projectId');
     if (!pid) return;
@@ -136,7 +139,7 @@ export default function ReelAura({ profile }: { profile: any }) {
   };
 
   useEffect(() => {
-    if (projectId && (scenes.length > 0 || activeStep !== 'script')) {
+    if (!isProjectLoading.current && projectId && (scenes.length > 0 || activeStep !== 'script')) {
       saveProjectState();
     }
   }, [scenes, activeStep, fullScript, topic, voice, theme, isPartStory, numParts, partLength, audioUrl]);
@@ -528,9 +531,10 @@ export default function ReelAura({ profile }: { profile: any }) {
         if (failedIndices.length === 0) break;
         
         rescuePasses++;
-        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} items...`);
+        setStatusMessage(`ReelRescue: Repairing ${failedIndices.length} frames (Pass ${rescuePasses})...`);
         
-        for (const idx of failedIndices) {
+        // Parallelized Rescue for vertical speed
+        await Promise.all(failedIndices.map(async (idx) => {
           try {
             const sceneData = currentStatusScenes[idx];
             const url = await generateSingleSceneImage(sceneData);
@@ -539,15 +543,12 @@ export default function ReelAura({ profile }: { profile: any }) {
               next[idx] = { ...next[idx], imageUrl: url, status: { ...next[idx].status, visual: 'done' } };
               return next;
             });
-            setImages(prev => {
-              const next = [...prev];
-              next[idx] = url;
-              return next;
-            });
+            completedCount++;
+            setProgress(Math.floor((completedCount / Math.max(totalScenes, completedCount)) * 100));
           } catch (e) {
             console.error(`Rescue attempt ${rescuePasses} failed for ${idx}`, e);
           }
-        }
+        }));
       }
 
       // Final Check
@@ -882,6 +883,11 @@ export default function ReelAura({ profile }: { profile: any }) {
       setError("Failed to restore project state.");
     } finally {
       setIsLoading(false);
+      isProjectLoading.current = false; // Mark loading as done
+      if (!error) {
+        setStatusMessage('Workspace Restored');
+        setTimeout(() => setStatusMessage(''), 2000);
+      }
     }
   };
 

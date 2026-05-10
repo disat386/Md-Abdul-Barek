@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Film, 
   Sparkles, 
@@ -127,7 +127,10 @@ export default function CineAura({ profile }: { profile: any }) {
   const [projectId, setProjectId] = useState<string | null>(null);
 
 
+  const isProjectLoading = useRef(true);
+
   const saveProjectState = async (updates: any = {}) => {
+    if (isProjectLoading.current) return;
     const params = new URLSearchParams(window.location.search);
     const pid = projectId || params.get('projectId');
     if (!pid) return;
@@ -153,7 +156,7 @@ export default function CineAura({ profile }: { profile: any }) {
   };
 
   useEffect(() => {
-    if (projectId && (scenes.length > 0 || activeStep !== 'script')) {
+    if (!isProjectLoading.current && projectId && (scenes.length > 0 || activeStep !== 'script')) {
       saveProjectState();
     }
   }, [scenes, activeStep, fullScript, topic, voice, theme, audioUrl]);
@@ -553,9 +556,10 @@ export default function CineAura({ profile }: { profile: any }) {
         if (failedIndices.length === 0) break;
         
         rescuePasses++;
-        setStatusMessage(`Rescue Pass ${rescuePasses}/${MAX_RESCUE_PASSES}: Fixing ${failedIndices.length} items...`);
+        setStatusMessage(`CineRescue: Repairing ${failedIndices.length} items (Pass ${rescuePasses})...`);
         
-        for (const idx of failedIndices) {
+        // Parallelized Rescue for speed
+        await Promise.all(failedIndices.map(async (idx) => {
           try {
             const scenePrompt = currentStatusScenes[idx].visualPrompt;
             const url = await generateSingleSceneImage(scenePrompt, idx);
@@ -564,10 +568,12 @@ export default function CineAura({ profile }: { profile: any }) {
               next[idx] = { ...next[idx], imageUrl: url, status: { ...next[idx].status, visual: 'done' } };
               return next;
             });
+            completed++;
+            setProgress(Math.floor((completed / Math.max(total, completed)) * 100));
           } catch (e) {
             console.error(`Rescue attempt ${rescuePasses} failed for ${idx}`, e);
           }
-        }
+        }));
       }
 
       // Final Check
@@ -876,6 +882,11 @@ export default function CineAura({ profile }: { profile: any }) {
       setError("Failed to restore project state.");
     } finally {
       setIsLoading(false);
+      isProjectLoading.current = false; // Mark loading as done
+      if (!error) {
+        setStatusMessage('Workspace Restored');
+        setTimeout(() => setStatusMessage(''), 2000);
+      }
     }
   };
 
