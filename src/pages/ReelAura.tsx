@@ -100,6 +100,7 @@ export default function ReelAura({ profile }: { profile: any }) {
   const [audioUrl, setAudioUrl] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [videoUrl, setVideoUrl] = useState('');
+  const [currentPreviewPart, setCurrentPreviewPart] = useState(1);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -207,40 +208,40 @@ export default function ReelAura({ profile }: { profile: any }) {
       if (!hasCredits) throw new Error('Insufficient credits.');
 
       const totalSeconds = isPartStory ? numParts * partLength : length * 60;
-      const frameCount = Math.max(12, Math.ceil(totalSeconds / 6)); // Increased pacing for Reels
       
-      const prompt = `ACT AS A VIRAL CONTENT ARCHITECT & SHORT-FORM RETENTION MASTER.
-      Write an ultra-high-energy, fast-paced viral script in ${language} about: ${topic}.
+      const prompt = `ACT AS A VIRAL SHORT-FORM RETENTION GOD. 
+      Write an ultra-high-energy, fast-paced vertical storytelling script in ${language} about: ${topic}.
       
-      CORE STRATEGY:
-      - Use ultra-short, punchy sentences.
-      - Eliminate fluff. Every word must grab attention.
-      - Optimize for vertical storytelling with extreme retention hooks.
+      STORYTELLING ARCHITECTURE (MANDATORY):
+      - NO SLOW INTROS. NO FILLER. NO FLUFF.
+      - Start with a "Pattern Interrupt" Hook (1-3 seconds) that forces a scroll-stop.
+      - Every single line MUST build curiosity. The viewer should feel they CANNOT leave.
+      - Short, rhythmic, hammer-like sentences.
+      - Use suspense triggers: "But there's a catch...", "They never saw this coming...", "Wait until you hear the end."
       
-      STRUCTURE:
-      ${isPartStory ? `YOU MUST DIVIDE THIS INTO EXACTLY ${numParts} PARTS.
-      EACH PART MUST BE A COMPLETE STORY ARC BUT END WITH A MASSIVE CLIFFHANGER.
-      THE DURATION PER PART IS ROUGHLY ${partLength} SECONDS.
+      ${isPartStory ? `EPISODIC STRUCTURE:
+      YOU MUST DIVIDE THIS INTO EXACTLY ${numParts} PARTS.
+      EACH PART IS A MINI-EPISODE OF ROUGHLY ${partLength} SECONDS.
       
-      TEMPLATE PER PART:
+      PART TEMPLATE (STRICT):
       [PART X START]
-      [HOOK] (A mind-blowing, pattern-interrupt sentence to stop the scroll) [/HOOK]
-      [NARRATION] (The core high-energy revelations. At least 8-10 long sentences per part to fill the requested duration.) [/NARRATION]
-      [CLIFFHANGER] (A suspenseful "open loop" that makes them search for Part X+1) [/CLIFFHANGER]
-      [PART X END]` : `One single continuous viral script with a strong hook at the 0.5s mark. Total duration: ${totalSeconds} seconds.`}
+      [HOOK] (Extreme attention grabber relative to this part's twist) [/HOOK]
+      [NARRATION] (Dense, curiosity-driven story progression. MUST be long enough for ${partLength}s) [/NARRATION]
+      [CLIFFHANGER] (A massive open-loop ending that triggers an immediate need for the next part) [/CLIFFHANGER]
+      [PART X END]` : `CONSTANT INTENSITY: Hook at 0s, Suspense at 15s, Payoff at 45s, Viral Loop at end. Total duration: ${totalSeconds}s.`}
 
       OUTPUT FORMAT:
       [NARRATIVE]
-      ${isPartStory ? `(ALL ${numParts} part blocks here in order)` : `(One master script block)`}
+      ${isPartStory ? `(ALL ${numParts} PART BLOCKS IN SEQUENTIAL ORDER)` : `(ONE SINGLE HIGH-INTENSITY MASTER SCRIPT)`}
       [/NARRATIVE]
 
       [VISUALS]
-      1. [VISUAL] High-impact vertical motion prompt 1
-      2. [VISUAL] High-impact vertical motion prompt 2
-      ... (provide at least one high-impact prompt per 6-8 seconds of story)
+      Provide exactly one [VISUAL] prompt per 6 seconds of story. 
+      Vertical 9:16 high-impact cinematic motion prompts.
+      Example: 1. [VISUAL] Cinematic close up of...
       [/VISUALS]
 
-      CRITICAL: Ensure [PART] markers are mathematically precise. Don't skip numbers. Content must be LONG enough to fill the requested ${partLength}s per part.`;
+      CRITICAL: Content must be LONG enough to fill the requested time. If a part is ${partLength}s, provide at least 12-15 punchy lines.`;
 
       const generatedContent = await aiService.generateText(prompt, undefined, (status) => setStatusMessage(status));
       setFullScript(generatedContent);
@@ -260,7 +261,7 @@ export default function ReelAura({ profile }: { profile: any }) {
         finalVisuals = (visualsBlock ? visualsBlock[1] : '').split(/\[VISUAL\]/i).map(p => p.trim()).filter(p => p.length > 5);
       }
 
-      processGeneratedContent(finalNarration, finalVisuals, frameCount);
+      processGeneratedContent(finalNarration, finalVisuals);
       
       await creditService.deduct(profile.uid, CREDIT_COSTS.STORY_GENERATION, 'STORY_GENERATION');
 
@@ -276,7 +277,7 @@ export default function ReelAura({ profile }: { profile: any }) {
         progress: 0,
         activeStep: 'editor',
         fullScript: finalNarration,
-        scenes: processGeneratedContent(finalNarration, finalVisuals, frameCount, true),
+        scenes: processGeneratedContent(finalNarration, finalVisuals, 0, true),
         language,
         length,
         theme,
@@ -301,38 +302,68 @@ export default function ReelAura({ profile }: { profile: any }) {
     }
   };
 
-  const partitionScript = (text: string, visuals: string[], frameCount: number): Scene[] => {
+  const partitionScript = (text: string, visuals: string[]): Scene[] => {
     let parsedScenes: Scene[] = [];
     
     if (isPartStory) {
-      // Robust regex to find Parts and then split them into scenes
       const partRegex = /\[PART (\d+) START\]([\s\S]*?)\[PART \1 END\]/gi;
       const matches = Array.from(text.matchAll(partRegex));
       
       if (matches.length > 0) {
         matches.forEach((m, pIdx) => {
+          const partIndex = pIdx + 1;
           const rawContent = m[2].trim();
-          const cleanText = rawContent
-            .replace(/\[HOOK\]|\[\/HOOK\]|\[NARRATION\]|\[\/NARRATION\]|\[CLIFFHANGER\]|\[\/CLIFFHANGER\]/gi, '')
-            .trim();
           
-          if (!cleanText) return;
+          // Split into Hook, Body, Cliffhanger
+          const hookMatch = rawContent.match(/\[HOOK\]([\s\S]*?)\[\/HOOK\]/i);
+          const narrationMatch = rawContent.match(/\[NARRATION\]([\s\S]*?)\[\/NARRATION\]/i);
+          const cliffMatch = rawContent.match(/\[CLIFFHANGER\]([\s\S]*?)\[\/CLIFFHANGER\]/i);
 
-          // Goal: Distribute scenes evenly across parts
-          const scenesPerPart = Math.max(4, Math.ceil(frameCount / matches.length));
-          const segmentLen = Math.ceil(cleanText.length / scenesPerPart);
+          const hook = hookMatch ? hookMatch[1].trim() : "";
+          const body = narrationMatch ? narrationMatch[1].trim() : "";
+          const cliff = cliffMatch ? cliffMatch[1].trim() : "";
+
+          // Frame count logic: 1 frame every 6 seconds.
+          // For a 60s part, we want ~10 frames.
+          const targetFramesForPart = Math.ceil(partLength / 6);
           
-          for (let i = 0; i < scenesPerPart; i++) {
-            const start = i * segmentLen;
-            const end = (i + 1) * segmentLen;
-            const textSegment = cleanText.substring(start, end).trim();
-            if (textSegment.length < 3) continue;
+          // Scene 1: Hook
+          if (hook) {
+            parsedScenes.push({
+              id: Math.random().toString(36).substr(2, 9),
+              partIndex,
+              visualPrompt: visuals[parsedScenes.length] || `Viral hook visual for Part ${partIndex}: ${topic}`,
+              narration: hook,
+              imageUrl: '',
+              status: { story: 'done', voice: 'pending', visual: 'pending' }
+            });
+          }
+
+          // Scenes 2 to N-1: Body
+          const bodySegments = Math.max(1, targetFramesForPart - 2);
+          const charsPerSegment = Math.ceil(body.length / bodySegments);
+          for (let i = 0; i < bodySegments; i++) {
+            const start = i * charsPerSegment;
+            const textSeg = body.substring(start, start + charsPerSegment).trim();
+            if (textSeg.length < 3) continue;
 
             parsedScenes.push({
               id: Math.random().toString(36).substr(2, 9),
-              partIndex: pIdx + 1,
-              visualPrompt: visuals[parsedScenes.length] || `Viral Reel scene ${parsedScenes.length + 1}: ${topic.substring(0, 20)}...`,
-              narration: textSegment,
+              partIndex,
+              visualPrompt: visuals[parsedScenes.length] || `High intensity scene ${i+2} for Part ${partIndex}`,
+              narration: textSeg,
+              imageUrl: '',
+              status: { story: 'done', voice: 'pending', visual: 'pending' }
+            });
+          }
+
+          // Final Scene: Cliffhanger
+          if (cliff) {
+            parsedScenes.push({
+              id: Math.random().toString(36).substr(2, 9),
+              partIndex,
+              visualPrompt: visuals[parsedScenes.length] || `Cliffhanger visual for Part ${partIndex}: ${topic}`,
+              narration: cliff,
               imageUrl: '',
               status: { story: 'done', voice: 'pending', visual: 'pending' }
             });
@@ -343,7 +374,8 @@ export default function ReelAura({ profile }: { profile: any }) {
 
     // Fallback if not part story or parsing failed
     if (parsedScenes.length === 0) {
-      const targetFrames = Math.max(visuals.length, frameCount);
+      const totalSeconds = length * 60;
+      const targetFrames = Math.max(visuals.length, Math.ceil(totalSeconds / 6));
       const charsPerSegment = Math.max(1, Math.floor(text.length / targetFrames));
       
       parsedScenes = Array.from({ length: targetFrames }).map((_, index) => {
@@ -365,8 +397,8 @@ export default function ReelAura({ profile }: { profile: any }) {
     return parsedScenes;
   };
 
-  const processGeneratedContent = (fullNarration: string, visualPrompts: string[], frameCount: number, returnOnly = false) => {
-    const parsedScenes = partitionScript(fullNarration, visualPrompts, frameCount);
+  const processGeneratedContent = (fullNarration: string, visualPrompts: string[], dummyArg = 0, returnOnly = false) => {
+    const parsedScenes = partitionScript(fullNarration, visualPrompts);
 
     if (returnOnly) return parsedScenes;
 
@@ -376,26 +408,12 @@ export default function ReelAura({ profile }: { profile: any }) {
   };
 
   const handleConfirmScript = () => {
-    // Determine target number of frames based on high-paced Reels logic
-    const estimatedSeconds = fullScript.length / 14; 
-    const totalSeconds = isPartStory ? (numParts * partLength) : Math.max(length * 60, estimatedSeconds);
-    const targetFrames = Math.max(12, Math.ceil(totalSeconds / 6));
-    
-    console.log(`Auurio: Re-partitioning Reel into ${targetFrames} frames...`);
+    console.log(`Auurio: Viral partitioning Reel storyboard...`);
 
     const currentVisuals = scenes.map(s => s.visualPrompt);
-    const updatedScenes = partitionScript(fullScript, currentVisuals, targetFrames);
+    const updatedScenes = partitionScript(fullScript, currentVisuals);
     
-    // Preserve any existing images/status where possible
-    const finalizedScenes = updatedScenes.map((ns, idx) => {
-      const existing = scenes[idx];
-      if (existing && existing.narration === ns.narration) {
-        return existing;
-      }
-      return ns;
-    });
-
-    setScenes(finalizedScenes);
+    setScenes(updatedScenes);
     setActiveStep('voice');
   };
 
@@ -1482,14 +1500,20 @@ export default function ReelAura({ profile }: { profile: any }) {
                     <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Episodic Downloads</label>
                     <div className="grid grid-cols-1 gap-2">
                        {Array.from({ length: numParts }).map((_, i) => (
-                         <div key={i} className="group p-3 bg-white/5 border border-white/10 rounded-xl flex items-center justify-between hover:bg-white/10 transition-all">
-                            <div className="flex items-center gap-3">
-                               <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-green-500 font-black text-xs italic">
+                         <div key={i} className={cn(
+                           "group p-3 border rounded-xl flex items-center justify-between transition-all cursor-pointer",
+                           currentPreviewPart === i + 1 ? "bg-green-500/10 border-green-500/50" : "bg-white/5 border-white/10 hover:bg-white/10"
+                         )}>
+                            <div className="flex items-center gap-3 flex-1" onClick={() => setCurrentPreviewPart(i + 1)}>
+                               <div className={cn(
+                                 "w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs italic",
+                                 currentPreviewPart === i + 1 ? "bg-green-500 text-black" : "bg-green-500/10 text-green-500"
+                               )}>
                                  {i + 1}
                                </div>
                                <div>
                                  <h4 className="text-[10px] font-black text-white uppercase tracking-tighter">PART {i + 1}</h4>
-                                 <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Independent Reel Master</p>
+                                 <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Select to preview</p>
                                </div>
                             </div>
                             <button 
@@ -1740,19 +1764,20 @@ export default function ReelAura({ profile }: { profile: any }) {
                        {videoUrl ? (
                          <div className="w-full h-full flex flex-col items-center">
                             <ProductionPlayer 
-                              scenes={scenes}
-                              audioUrl={audioUrl}
-                              title={topic}
+                              scenes={isPartStory ? scenes.filter(s => s.partIndex === currentPreviewPart) : scenes}
+                              audioUrl={isPartStory ? (scenes.find(s => s.partIndex === currentPreviewPart)?.audioUrl || audioUrl) : audioUrl}
+                              title={isPartStory ? `${topic} - Part ${currentPreviewPart}` : topic}
                               aspectRatio="reel"
                               numParts={isPartStory ? numParts : 1}
-                              onDownload={() => handleExportVideo()}
+                              onDownload={() => handleExportVideo(isPartStory ? currentPreviewPart : undefined)}
                             />
                             <div className="mt-12 flex flex-col sm:flex-row gap-4">
                                <button 
-                                 onClick={() => window.open(audioUrl, '_blank')}
-                                 className="px-10 py-5 bg-red-600 text-white font-black uppercase tracking-tighter rounded-full hover:bg-red-500 transition-all flex items-center gap-3 shadow-2xl shadow-red-600/20 active:scale-95"
+                                 onClick={() => handleExportVideo(isPartStory ? currentPreviewPart : undefined)}
+                                 disabled={isExporting}
+                                 className="px-10 py-5 bg-red-600 text-white font-black uppercase tracking-tighter rounded-full hover:bg-red-500 transition-all flex items-center gap-3 shadow-2xl shadow-red-600/20 active:scale-95 disabled:opacity-50"
                                >
-                                 <Download size={20} /> Export Master Reel
+                                 <Download size={20} /> {isPartStory ? `Export Part ${currentPreviewPart}` : 'Export Master Reel'}
                                </button>
                                <button
                                  onClick={() => setActiveStep('script')}
