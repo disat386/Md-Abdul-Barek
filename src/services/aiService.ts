@@ -120,8 +120,7 @@ class AIService {
         this.config = snap.data() as VertexConfig;
       }
       
-      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || 
-                     (process as any)?.env?.GEMINI_API_KEY || 
+      const apiKey = process.env.GEMINI_API_KEY || 
                      this.config?.primaryApiKey || 
                      '';
                      
@@ -134,7 +133,7 @@ class AIService {
       }
     } catch (err) {
       console.warn("Auurio: Initialization error. Falling back.", err);
-      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (process as any)?.env?.GEMINI_API_KEY || '';
+      const apiKey = process.env.GEMINI_API_KEY || '';
       if (apiKey) this.client = new GoogleGenAI({ apiKey });
     }
     
@@ -161,9 +160,9 @@ class AIService {
     await this.initialize();
 
     const models = [
-      modelOverride || this.config?.modelId || "gemini-2.0-flash-exp",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro"
+      modelOverride || this.config?.modelId || "gemini-3-flash-preview",
+      "gemini-3.1-pro-preview",
+      "gemini-flash-latest"
     ];
 
     let lastError: any = null;
@@ -195,9 +194,7 @@ class AIService {
         }
 
         // Direct fallback (ONLY works if in AI Studio or if key is provided)
-        const browserKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || 
-                          (process as any)?.env?.GEMINI_API_KEY || 
-                          this.config?.primaryApiKey;
+        const browserKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey;
           
         if (!browserKey && !window.location.hostname.includes("run.app")) {
             throw new Error("⚠️ Auurio Engine Error: All attempts failed including local fallback. Action: Check if Server is running and GEMINI_API_KEY is configured.");
@@ -693,8 +690,8 @@ class AIService {
 
         // Use ONLY high-stability models for TTS
         const audioModels = [
-          "gemini-1.5-flash",
-          "gemini-1.5-pro"
+          "gemini-3.1-flash-tts-preview",
+          "gemini-3-flash-preview"
         ];
         
         for (const entry of clientsToTry) {

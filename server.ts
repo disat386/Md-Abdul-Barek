@@ -50,7 +50,7 @@ async function startServer() {
     const { prompt, model } = req.body;
     try {
       const response = await genAI.models.generateContent({
-        model: model || "gemini-1.5-flash",
+        model: model || "gemini-3-flash-preview",
         contents: [{ role: "user", parts: [{ text: prompt }] }]
       });
       res.json({ text: response.text });
