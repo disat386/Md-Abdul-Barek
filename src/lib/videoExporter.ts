@@ -19,8 +19,8 @@ export async function exportToVideo(
   }
 ): Promise<Blob> {
   const { aspectRatio, onProgress } = options;
-  const width = aspectRatio === 'video' ? 1280 : 720;
-  const height = aspectRatio === 'video' ? 720 : 1280;
+  const width = aspectRatio === 'video' ? 1920 : 1080;
+  const height = aspectRatio === 'video' ? 1080 : 1920;
 
   onProgress?.({ progress: 5, status: 'Preparing audio engine...' });
   
@@ -103,19 +103,14 @@ export async function exportToVideo(
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
 
-  // 3. Prepare Images
-  const loadedImages: (HTMLImageElement | null)[] = [];
-  for (let i = 0; i < scenes.length; i++) {
-    const scene = scenes[i];
+  // 3. Prepare Images in Parallel
+  const loadedImages: (HTMLImageElement | null)[] = await Promise.all(scenes.map(async (scene, i) => {
     onProgress?.({ 
       progress: 10 + Math.floor((i / scenes.length) * 30), 
-      status: `Mastering Scene ${i + 1} of ${scenes.length}...` 
+      status: `Optimizing Assets (${i + 1}/${scenes.length})...` 
     });
 
-    if (!scene.imageUrl) {
-      loadedImages.push(null);
-      continue;
-    }
+    if (!scene.imageUrl) return null;
 
     const loadImage = async (url: string, attempts = 3): Promise<HTMLImageElement | null> => {
       for (let j = 0; j < attempts; j++) {
@@ -124,33 +119,26 @@ export async function exportToVideo(
           img.crossOrigin = "anonymous";
           const loadPromise = new Promise<void>((res, rej) => {
             img.onload = () => {
-              // Test if image taints canvas
               try {
                 const testCanvas = document.createElement('canvas');
-                testCanvas.width = 1;
-                testCanvas.height = 1;
+                testCanvas.width = 1; testCanvas.height = 1;
                 const tCtx = testCanvas.getContext('2d');
                 if (tCtx) {
                   tCtx.drawImage(img, 0, 0, 1, 1);
-                  testCanvas.toDataURL(); // Throws if tainted
+                  testCanvas.toDataURL(); 
                 }
                 res();
               } catch (e) {
-                console.warn("Auurio: Image taints canvas, export might fail", url);
-                res(); // Still resolve but we know it might be problematic
+                console.warn("Auurio: Cross-origin taint detected", url);
+                res(); 
               }
             };
-            img.onerror = (e) => {
-               console.warn(`Auurio: Image load fail on attempt ${j+1}`, url);
-               rej(e);
-            };
-            const timeout = setTimeout(() => rej(new Error("Timeout")), 20000);
+            img.onerror = rej;
+            const timeout = setTimeout(() => rej(new Error("Timeout")), 30000);
             img.src = url; 
-            return () => clearTimeout(timeout);
           });
           await loadPromise;
-          if (img.decode) await img.decode();
-          return img;
+          if (img.complete) return img;
         } catch (e) {
           if (j === attempts - 1) return null;
           await new Promise(r => setTimeout(r, 1000));
@@ -159,9 +147,8 @@ export async function exportToVideo(
       return null;
     };
 
-    const img = await loadImage(scene.imageUrl);
-    loadedImages.push(img);
-  }
+    return loadImage(scene.imageUrl);
+  }));
 
   // 4. Setup Recording
   const canvasStream = (canvas as any).captureStream ? (canvas as any).captureStream(30) : (canvas as any).mozCaptureStream ? (canvas as any).mozCaptureStream(30) : null;
@@ -193,10 +180,10 @@ export async function exportToVideo(
 
   const getSupportedMimeType = () => {
     const types = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm;codecs=h264,opus',
+      'video/mp4;codecs=h264,aac',
       'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=h264,opus',
       'video/webm',
       'video/mp4'
     ];
@@ -215,7 +202,7 @@ export async function exportToVideo(
 
   const recorder = new MediaRecorder(combinedStream, {
     mimeType,
-    videoBitsPerSecond: 8000000
+    videoBitsPerSecond: 12000000 // 12 Mbps for Full HD
   });
 
   const chunks: Blob[] = [];
@@ -288,26 +275,49 @@ export async function exportToVideo(
           }
         }, maxDuration);
 
-        // Use a high-frequency interval for rendering to be more resilient than RAF
-        // but still use RAF for smoothness if possible
-        const tick = () => {
-          if (recorder.state === 'inactive') {
-            if (renderTimer) clearInterval(renderTimer);
-            clearTimeout(safetyTimeout);
-            return;
-          }
+        // Smart Heartbeat: Combine requestAnimationFrame with a failsafe Interval
+        // This ensures the video track NEVER starving, even if the tab is backgrounded
+        const pulse = () => {
+          if (recorder.state === 'inactive') return;
           
-          const time = (performance.now() - playStartTime) / 1000;
+          const now = performance.now();
+          const elapsed = now - playStartTime;
+          const time = elapsed / 1000;
+
           if (time >= totalDuration) {
             stopProduction();
             return;
           }
           
           renderFrame(time);
-          renderTimer = requestAnimationFrame(tick);
+        };
+
+        const TICK_RATE = 1000 / 30;
+        let lastTick = performance.now();
+        
+        const mainLoop = () => {
+          if (recorder.state === 'inactive') return;
+          
+          const now = performance.now();
+          if (now - lastTick >= TICK_RATE) {
+            pulse();
+            lastTick = now;
+          }
+          
+          renderTimer = requestAnimationFrame(mainLoop);
         };
         
-        tick();
+        // Failsafe Interval for background processing
+        const failsafeInterval = setInterval(pulse, TICK_RATE * 2);
+        
+        renderTimer = requestAnimationFrame(mainLoop);
+        
+        // Clear failsafe on stop
+        const originalOnStop = recorder.onstop;
+        recorder.onstop = (e) => {
+          clearInterval(failsafeInterval);
+          if (originalOnStop) (originalOnStop as any)(e);
+        };
 
       } catch (e) {
         console.error("Auurio: Production failure:", e);
@@ -325,16 +335,21 @@ export async function exportToVideo(
        }
     };
 
+    let lastValidImg: HTMLImageElement | null = null;
+
     const renderFrame = (time: number) => {
       const sceneIndex = sceneStartTimes.findLastIndex(startTime => time >= startTime);
       const activeIndex = sceneIndex === -1 ? 0 : sceneIndex;
-      const img = loadedImages[activeIndex];
+      const img = loadedImages[activeIndex] || lastValidImg;
 
       // Rendering Logic (Movement, Captions)
-      ctx.fillStyle = '#000';
+      // Only clear if we actually have something to draw over it, or we lose transparency/smoothness
+      // But for Reels (full coverage), we always clear with black
+      ctx.fillStyle = '#111';
       ctx.fillRect(0, 0, width, height);
 
       if (img && img.complete) {
+        lastValidImg = img;
         const sceneStartTime = sceneStartTimes[activeIndex];
         const sceneEnd = activeIndex < sceneStartTimes.length - 1 ? sceneStartTimes[activeIndex+1] : totalDuration;
         const sDur = sceneEnd - sceneStartTime;

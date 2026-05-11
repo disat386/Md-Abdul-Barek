@@ -162,6 +162,7 @@ export default function ReelAura({ profile }: { profile: any }) {
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [batchStatus, setBatchStatus] = useState<Record<number, 'pending' | 'success' | 'error'>>({});
 
   const performVideoExport = async (targetPartIndex?: number) => {
     const workingScenes = targetPartIndex 
@@ -251,22 +252,34 @@ export default function ReelAura({ profile }: { profile: any }) {
     aiService.stopSpeaking();
     setStatusMessage(`Initializing batch export of ${readyParts.length} segments...`);
     
+    // Reset batch status
+    const initialStatus: Record<number, 'pending' | 'success' | 'error'> = {};
+    readyParts.forEach(p => initialStatus[p] = 'pending');
+    setBatchStatus(initialStatus);
+    
     try {
       for (let i = 0; i < readyParts.length; i++) {
-        // If user cancelled overlay, stop the loop
-        if (!isExporting) break;
+        // If user cancelled, break immediately
+        if (!isExporting && i > 0) break; 
 
         const pNum = readyParts[i];
         setExportProgress({ progress: 0, status: `Batch Production: Segment ${pNum} (${i+1}/${readyParts.length})` });
-        await performVideoExport(pNum);
+        
+        try {
+          await performVideoExport(pNum);
+          setBatchStatus(prev => ({ ...prev, [pNum]: 'success' }));
+        } catch (err) {
+          console.error(`Export failed for Part ${pNum}`, err);
+          setBatchStatus(prev => ({ ...prev, [pNum]: 'error' }));
+        }
         
         // Safety delay to prevent browser download restrictions/UI freezing
         if (i < readyParts.length - 1) {
           setStatusMessage(`Segment ${pNum} exported! Next in queue...`);
-          await new Promise(r => setTimeout(r, 5000)); // 5s delay for stability
+          await new Promise(r => setTimeout(r, 6000)); // 6s delay for stability
         }
       }
-      setStatusMessage("All deliverables exported successfully!");
+      setStatusMessage("Batch production cycle complete.");
     } catch (err: any) {
       console.error("Batch Export error:", err);
       setError("Batch export failed: " + err.message);
@@ -1164,6 +1177,26 @@ export default function ReelAura({ profile }: { profile: any }) {
                 <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-relaxed">
                   {exportProgress.status}
                 </p>
+
+                {Object.keys(batchStatus).length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-2 mt-4 max-w-xs mx-auto">
+                    {Object.entries(batchStatus).map(([pNum, status]) => (
+                      <div 
+                        key={pNum} 
+                        className={`px-3 py-1.5 rounded-lg border flex items-center gap-2 transition-all ${
+                          status === 'success' ? 'border-green-500/50 bg-green-500/10' : 
+                          status === 'error' ? 'border-red-500/50 bg-red-500/10' : 
+                          'border-white/10 bg-white/5 opacity-40'
+                        }`}
+                      >
+                        <span className="text-[9px] font-black text-white italic">PART {pNum}</span>
+                        {status === 'success' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]" />}
+                        {status === 'error' && <X size={10} className="text-red-500" />}
+                        {status === 'pending' && <div className="w-1.5 h-1.5 rounded-full bg-white/20 animate-pulse" />}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               
               <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
