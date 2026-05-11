@@ -90,34 +90,52 @@ class AIService {
         const newConfig = snap.data() as VertexConfig;
         this.config = newConfig;
         
-        // Re-initialize clients with new keys if they changed
         if (newConfig.primaryApiKey) {
-          this.client = new GoogleGenAI({ apiKey: newConfig.primaryApiKey });
+          try {
+            this.client = new GoogleGenAI({ apiKey: newConfig.primaryApiKey });
+          } catch (e) {
+            console.error("Auurio: Failed to update client with new config key", e);
+          }
         }
         if (newConfig.secondaryAudioKey) {
-          this.audioFallbackClient = new GoogleGenAI({ apiKey: newConfig.secondaryAudioKey });
+          try {
+            this.audioFallbackClient = new GoogleGenAI({ apiKey: newConfig.secondaryAudioKey });
+          } catch (e) {
+            console.error("Auurio: Failed to update fallback client", e);
+          }
         }
       }
+    }, (err) => {
+      console.warn("Auurio: Config listener failed, using defaults", err);
     });
 
     try {
       const configRef = doc(db, "settings", "vertex_config");
-      const snap = await getDoc(configRef);
+      const snap = await Promise.race([
+        getDoc(configRef),
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Firebase Timeout")), 5000))
+      ]);
       
-      if (snap.exists()) {
+      if (snap && snap.exists()) {
         this.config = snap.data() as VertexConfig;
       }
       
-      const apiKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey || '';
-      this.client = new GoogleGenAI({ apiKey });
+      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || 
+                     (process as any)?.env?.GEMINI_API_KEY || 
+                     this.config?.primaryApiKey || 
+                     '';
+                     
+      if (apiKey) {
+        this.client = new GoogleGenAI({ apiKey });
+      }
 
       if (this.config?.secondaryAudioKey) {
         this.audioFallbackClient = new GoogleGenAI({ apiKey: this.config.secondaryAudioKey });
       }
     } catch (err) {
       console.warn("Auurio: Initialization error. Falling back.", err);
-      const apiKey = process.env.GEMINI_API_KEY || '';
-      this.client = new GoogleGenAI({ apiKey });
+      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (process as any)?.env?.GEMINI_API_KEY || '';
+      if (apiKey) this.client = new GoogleGenAI({ apiKey });
     }
     
     this.isInitialized = true;
@@ -143,9 +161,9 @@ class AIService {
     await this.initialize();
 
     const models = [
-      modelOverride || this.config?.modelId || "gemini-3-flash-preview",
-      "gemini-3-pro-preview",
-      "gemini-flash-latest"
+      modelOverride || this.config?.modelId || "gemini-2.0-flash-exp",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro"
     ];
 
     let lastError: any = null;
@@ -156,31 +174,47 @@ class AIService {
         
         // Strategy: Try Server-side proxy first to avoid exposing keys in frontend
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout for AI
+
           const proxyRes = await fetch("/api/generate-text", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt, model: modelName })
+            body: JSON.stringify({ prompt, model: modelName }),
+            signal: controller.signal
           });
+          
+          clearTimeout(timeoutId);
           
           if (proxyRes.ok) {
             const data = await proxyRes.json();
             if (data.text) return data.text;
           }
         } catch (proxyErr) {
-          console.warn("Auurio Proxy: Unreachable.");
+          console.warn(`Auurio Proxy (${modelName}): Unreachable or Timed out.`, proxyErr);
         }
 
         // Direct fallback (ONLY works if in AI Studio or if key is provided)
-      const browserKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey;
-        
-      if (!browserKey && !window.location.hostname.includes("run.app")) {
-          throw new Error("⚠️ Auurio Engine Error: Primary GEMINI_API_KEY missing in environment. Action: Add one in Admin Hub > Vertex AI > Rescue Key.");
-      }
+        const browserKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || 
+                          (process as any)?.env?.GEMINI_API_KEY || 
+                          this.config?.primaryApiKey;
+          
+        if (!browserKey && !window.location.hostname.includes("run.app")) {
+            throw new Error("⚠️ Auurio Engine Error: All attempts failed including local fallback. Action: Check if Server is running and GEMINI_API_KEY is configured.");
+        }
 
-      const response = await this.client.models.generateContent({
-        model: modelName,
-        contents: prompt
-      });
+        if (!this.client && browserKey) {
+          this.client = new GoogleGenAI({ apiKey: browserKey });
+        }
+
+        if (!this.client) {
+          throw new Error("Auurio: AI Client not initialized. Check API keys.");
+        }
+
+        const response = await this.client.models.generateContent({
+          model: modelName,
+          contents: [{ role: "user", parts: [{ text: prompt }] }]
+        });
 
       if (response.text) {
         // Log Usage
@@ -659,8 +693,8 @@ class AIService {
 
         // Use ONLY high-stability models for TTS
         const audioModels = [
-          "gemini-3.1-flash-tts-preview",
-          "gemini-3-flash-preview"
+          "gemini-1.5-flash",
+          "gemini-1.5-pro"
         ];
         
         for (const entry of clientsToTry) {
