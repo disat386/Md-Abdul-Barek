@@ -128,10 +128,12 @@ class AIService {
     await this.initialize();
 
     const models = [
-      modelOverride || this.config?.modelId || "gemini-2.0-flash",
+      modelOverride || this.config?.modelId || "gemini-3-flash-preview",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite-preview",
       "gemini-1.5-flash",
       "gemini-1.5-flash-8b",
-      "gemini-2.0-flash-lite-preview"
+      "gemini-1.5-pro"
     ];
 
     let lastError: any = null;
@@ -142,12 +144,17 @@ class AIService {
         
         // 1. Try Pooled Clients for high-throughput
         const pooled = await this.getPooledClients();
-        if (pooled.length > 0) {
-          for (const entry of pooled) {
-            try {
-              const response = await entry.client.getGenerativeModel({ model: modelName }).generateContent({
-                contents: [{ role: "user", parts: [{ text: prompt }] }]
-              });
+        if (pooled.length === 0) {
+          console.error("Auurio: API Key Pool is empty. Please check Admin Hub.");
+          // We don't throw yet, maybe some global client exists? But per rules we should.
+        }
+        
+        for (const entry of pooled) {
+          try {
+            const genModel = entry.client.getGenerativeModel({ model: modelName });
+            const response = await genModel.generateContent({
+              contents: [{ role: "user", parts: [{ text: prompt }] }]
+            });
               
               if (response?.response?.text()) {
                 const text = response.response.text();
@@ -171,8 +178,6 @@ class AIService {
               continue;
             }
           }
-        }
-        
       } catch (err: any) {
         lastError = err;
         console.warn(`Auurio: Attempt ${modelName} failed:`, err.message);
@@ -623,7 +628,10 @@ class AIService {
 
         // Use ONLY high-stability models for TTS / Audio Modality
         const audioModels = [
+          "gemini-3.1-flash-tts-preview",
+          "gemini-3-flash-preview",
           "gemini-2.0-flash",
+          "gemini-2.0-flash-lite-preview",
           "gemini-1.5-flash",
           "gemini-1.5-flash-8b"
         ];
@@ -802,6 +810,7 @@ ${text}`;
     const framePrompt = `${styleModifiers} ${cinematicKeywords} ${sanitizedPrompt}.`;
 
     const models = [
+      "gemini-3-flash-preview",
       "gemini-2.0-flash",
       "gemini-1.5-flash",
     ];
