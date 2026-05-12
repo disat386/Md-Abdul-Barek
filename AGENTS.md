@@ -5,7 +5,8 @@ To maintain stability and cost efficiency, the following AI model usage rules ar
 ## 1. AI Engine Usage - Unified Free Pool
 - **STRATEGY**: ALL AI tasks (Story Generation, Image Generation, Voice Synthesis) MUST ONLY use the **Legacy API Key Pool** (Firestore `api_keys`).
 - **RATIONALE**: This distributed pool allows for high throughput without incurring costs on a single primary key.
-- **NO FALLBACK**: `process.env.GEMINI_API_KEY` and server-side proxies are EXPLICITLY REMOVED. If the pool is exhausted, the system must wait for cooldown or requires more keys to be added to the pool.
+- **NO FALLBACK**: The application's AI features MUST NOT use `process.env.GEMINI_API_KEY` or server-side proxies. If the pool is exhausted, the system must wait for cooldown or requires more keys to be added to the pool.
+- **DEPLOYMENT EXCEPTION**: `process.env.GEMINI_API_KEY` is maintained in the environment ONLY to satisfy deployment validation requirements (e.g., Hostinger Git Sync or environment checks) and must not be used for content generation.
 - **VERTEX AI**: Vertex AI system is EXPLICITLY REMOVED and must not be used.
 
 ## 2. Audio Generation Specifics

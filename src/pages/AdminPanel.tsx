@@ -78,7 +78,9 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function AdminPanel({ profile }: { profile: any }) {
-  const [activeTab, setActiveTab] = useState<'users' | 'packages' | 'payments' | 'coupons' | 'keys' | 'settings' | 'analytics'>('users');
+  const [activeTab, setActiveTab] = useState<'keys' | 'users' | 'packages' | 'payments' | 'coupons' | 'settings' | 'analytics'>(
+    profile?.role === 'super-admin' ? 'keys' : 'users'
+  );
   
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [editingCoupon, setEditingCoupon] = useState<any>(null);
@@ -531,11 +533,11 @@ export default function AdminPanel({ profile }: { profile: any }) {
 
       <div className="flex gap-4 border-b border-white/5 pb-1 overflow-x-auto custom-scrollbar no-scrollbar whitespace-nowrap">
         {[
+          { id: 'keys', label: 'AI API Management', icon: Key },
           { id: 'users', label: 'Users', icon: Users },
           { id: 'packages', label: 'Packages', icon: PackageIcon },
           { id: 'payments', label: 'Payments', icon: CreditCard },
           { id: 'coupons', label: 'Coupons', icon: Ticket },
-          { id: 'keys', label: 'API Pool', icon: Key },
           { id: 'analytics', label: 'Smart Analytics', icon: BarChart3 },
           { id: 'settings', label: 'Settings', icon: SettingsIcon },
         ].map((tab) => (
@@ -904,7 +906,7 @@ export default function AdminPanel({ profile }: { profile: any }) {
                   <div className="flex items-center gap-3">
                     <h3 className="text-xl font-bold flex items-center gap-2">
                       <Key className="text-blue-500" />
-                      Legacy API Key Pool
+                      AI API Control Center
                     </h3>
                     <button 
                       onClick={fetchKeys}
@@ -950,25 +952,29 @@ export default function AdminPanel({ profile }: { profile: any }) {
                     )}
                   </div>
                   <span className="bg-zinc-800 text-zinc-400 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest">
-                    {keys.length} Active
+                    {keys.length} Active in Pool
                   </span>
                 </div>
 
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newKey}
-                    onChange={(e) => setNewKey(e.target.value)}
-                    placeholder="Enter Gemini API Key..."
-                    className="flex-1 bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm focus:border-blue-500 outline-none transition-colors"
-                  />
-                  <button
-                    onClick={handleAddKey}
-                    disabled={isAdding}
-                    className="bg-blue-500 text-white font-bold px-4 rounded-2xl hover:bg-blue-400 active:scale-95 transition-all disabled:opacity-50"
-                  >
-                    {isAdding ? <RotateCw className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-                  </button>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Add New Gemini API Key</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newKey}
+                      onChange={(e) => setNewKey(e.target.value)}
+                      placeholder="Enter Gemini API Key (AI Studio)..."
+                      className="flex-1 bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm focus:border-blue-500 outline-none transition-colors font-mono"
+                    />
+                    <button
+                      onClick={handleAddKey}
+                      disabled={isAdding}
+                      className="bg-blue-500 text-white font-bold px-6 rounded-2xl hover:bg-blue-400 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {isAdding ? <RotateCw className="w-5 h-5 animate-spin" /> : <><Plus className="w-5 h-5" /> <span>Add Key</span></>}
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-zinc-600 font-medium ml-1 italic">Note: Keys are added to the global load-balanced pool.</p>
                 </div>
 
                 <div className="space-y-4">

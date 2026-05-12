@@ -11,7 +11,8 @@ import {
   CreditCard,
   X,
   Smartphone,
-  Loader2
+  Loader2,
+  ShieldCheck
 } from 'lucide-react';
 import { db } from '../firebase';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -129,6 +130,27 @@ export default function Dashboard({ profile }: { profile: any }) {
               </button>
             </div>
           </div>
+
+          {profile?.role && profile.role !== 'user' && (
+            <div 
+              onClick={() => window.location.href = '/admin'}
+              className="bg-blue-500/10 border border-blue-500/20 rounded-3xl p-8 flex flex-col justify-between group cursor-pointer relative overflow-hidden h-[180px]"
+            >
+              <div className="relative z-10 space-y-3">
+                <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-xl">
+                  <ShieldCheck className="text-white w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-blue-500 uppercase italic tracking-tighter">AI Management</h3>
+                  <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">Manage API Keys & Pool</p>
+                </div>
+              </div>
+              <div className="relative z-10 flex items-center justify-between text-blue-500 font-black uppercase text-[10px] tracking-widest">
+                <span>Configure Keys</span>
+                <ChevronRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          )}
 
           <div className="bg-orange-500 rounded-3xl p-8 flex flex-col justify-between group cursor-pointer relative overflow-hidden min-h-[300px]" onClick={() => window.location.href = '/cine'}>
             <div className="relative z-10 space-y-4">

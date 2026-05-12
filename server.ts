@@ -20,11 +20,21 @@ async function startServer() {
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
 
+  // Initialize Gemini for Server-side environment checks
+  // This is required for some deployment validation processes (e.g. Hostinger Git Sync)
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  if (apiKey) {
+    console.log(`✅ Auurio Server: Deployment Key Pulse [${apiKey.substring(0, 5)}...]`);
+  } else {
+    console.warn("⚠️ Auurio Server: GEMINI_API_KEY not found. Sync might fail.");
+  }
+
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ 
       status: "ok", 
       message: "Auurio stable backend is active",
+      hasKey: !!apiKey,
       node: process.version
     });
   });
