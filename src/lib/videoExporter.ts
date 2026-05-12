@@ -200,9 +200,12 @@ export async function exportToVideo(
     throw new Error("Your browser does not support any compatible video recording formats.");
   }
 
+  // Use higher bitrate for HD quality
+  const videoBitsPerSecond = 20000000; // 20 Mbps for higher quality HD
+  
   const recorder = new MediaRecorder(combinedStream, {
     mimeType,
-    videoBitsPerSecond: 12000000 // 12 Mbps for Full HD
+    videoBitsPerSecond
   });
 
   const chunks: Blob[] = [];
@@ -263,11 +266,11 @@ export async function exportToVideo(
         }
 
         console.log("Auurio: Starting MediaRecorder...");
-        recorder.start(1000); 
+        recorder.start(100); // Smaller timeslice for better chunking
         playStartTime = performance.now();
         
         // Safety timeout to prevent infinite hanging
-        const maxDuration = (totalDuration + 15) * 1000;
+        const maxDuration = (totalDuration + 20) * 1000; // Increased buffer
         const safetyTimeout = setTimeout(() => {
           if (recorder.state === 'recording') {
             console.warn("Auurio: Production auto-stopped after timeout safeguard");
@@ -275,47 +278,56 @@ export async function exportToVideo(
           }
         }, maxDuration);
 
-        // Smart Heartbeat: Combine requestAnimationFrame with a failsafe Interval
-        // This ensures the video track NEVER starving, even if the tab is backgrounded
-        const pulse = () => {
-          if (recorder.state === 'inactive') return;
-          
-          const now = performance.now();
-          const elapsed = now - playStartTime;
-          const time = elapsed / 1000;
-
-          if (time >= totalDuration) {
-            stopProduction();
+        // Solid Heartbeat: We MUST maintain frame cadence even if tab is blurred
+        const FPS = 30;
+        const frameInterval = 1000 / FPS;
+        let lastFrameTime = 0;
+        
+        const renderLoop = () => {
+          if (recorder.state === 'inactive') {
+            clearTimeout(safetyTimeout);
             return;
           }
           
-          renderFrame(time);
-        };
-
-        const TICK_RATE = 1000 / 30;
-        let lastTick = performance.now();
-        
-        const mainLoop = () => {
-          if (recorder.state === 'inactive') return;
-          
           const now = performance.now();
-          if (now - lastTick >= TICK_RATE) {
-            pulse();
-            lastTick = now;
+          const elapsedSinceStart = now - playStartTime;
+          const currentTimeSeconds = elapsedSinceStart / 1000;
+
+          if (currentTimeSeconds >= totalDuration) {
+            stopProduction();
+            clearTimeout(safetyTimeout);
+            return;
+          }
+
+          // Force render at specific interval
+          if (elapsedSinceStart - lastFrameTime >= frameInterval) {
+            renderFrame(currentTimeSeconds);
+            lastFrameTime = elapsedSinceStart;
           }
           
-          renderTimer = requestAnimationFrame(mainLoop);
+          renderTimer = requestAnimationFrame(renderLoop);
         };
+
+        // Failsafe Background Pulse (Intervals run even when blurred, though throttled)
+        const failsafeInterval = setInterval(() => {
+          if (recorder.state === 'recording') {
+            const now = performance.now();
+            const elapsed = (now - playStartTime) / 1000;
+            if (elapsed < totalDuration) {
+              renderFrame(elapsed);
+            }
+          } else {
+            clearInterval(failsafeInterval);
+          }
+        }, 100); // 10 FPS fallback if backgrounded
         
-        // Failsafe Interval for background processing
-        const failsafeInterval = setInterval(pulse, TICK_RATE * 2);
-        
-        renderTimer = requestAnimationFrame(mainLoop);
+        renderTimer = requestAnimationFrame(renderLoop);
         
         // Clear failsafe on stop
         const originalOnStop = recorder.onstop;
         recorder.onstop = (e) => {
           clearInterval(failsafeInterval);
+          clearTimeout(safetyTimeout);
           if (originalOnStop) (originalOnStop as any)(e);
         };
 

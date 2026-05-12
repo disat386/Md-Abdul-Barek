@@ -12,6 +12,7 @@ import CineAura from './pages/CineAura';
 import ReelAura from './pages/ReelAura';
 import ThumbAura from './pages/ThumbAura';
 import ScriptAura from './pages/ScriptAura';
+import CineVoice from './pages/CineVoice';
 import AdminPanel from './pages/AdminPanel';
 
 // Components
@@ -95,6 +96,7 @@ export default function App() {
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard profile={profile} />} />
                     <Route path="/cine" element={<CineAura profile={profile} />} />
+                    <Route path="/voice" element={<CineVoice profile={profile} />} />
                     <Route path="/reel" element={<ReelAura profile={profile} />} />
                     <Route path="/thumb" element={<ThumbAura profile={profile} />} />
                     <Route path="/script" element={<ScriptAura profile={profile} />} />

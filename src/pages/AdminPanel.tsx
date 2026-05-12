@@ -5,12 +5,8 @@ import {
   ShieldCheck, 
   Key, 
   RotateCw,
-  AlertCircle,
-  CheckCircle2,
   ExternalLink,
   Code,
-  Globe,
-  Database,
   Users,
   Search,
   CreditCard,
@@ -82,7 +78,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function AdminPanel({ profile }: { profile: any }) {
-  const [activeTab, setActiveTab] = useState<'users' | 'packages' | 'payments' | 'coupons' | 'keys' | 'vertex' | 'settings' | 'analytics'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'packages' | 'payments' | 'coupons' | 'keys' | 'settings' | 'analytics'>('users');
   
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [editingCoupon, setEditingCoupon] = useState<any>(null);
@@ -124,18 +120,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
   }, []);
 
   const [currentUserData, setCurrentUserData] = useState<any>(null);
-  const [serverHealth, setServerHealth] = useState<any>(null);
-
-  const checkServer = async () => {
-    try {
-      const res = await fetch('/api/health');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setServerHealth(data);
-    } catch (e: any) {
-      setServerHealth({ status: 'offline', error: e.message });
-    }
-  };
 
   const fetchKeys = async () => {
     setIsRefreshingKeys(true);
@@ -231,16 +215,8 @@ export default function AdminPanel({ profile }: { profile: any }) {
     }
   };
 
-  // Vertex Config State
-  const [vConfig, setVConfig] = useState({
-    useFirebaseVertex: false,
-    modelId: 'gemini-2.0-flash-001',
-    primaryApiKey: '',
-    secondaryAudioKey: ''
-  });
-  const [isSavingV, setIsSavingV] = useState(false);
-  const [testStatus, setTestStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
-
+  // Vertex Config State is removed as per user request to use only free pool
+  
   useEffect(() => {
     const q = query(collection(db, 'api_keys'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -249,13 +225,9 @@ export default function AdminPanel({ profile }: { profile: any }) {
       console.error("Auurio: Snapshot listener failed. Check permissions:", error);
     });
 
-    // Fetch Vertex Config & User Role
+    // Fetch User Role
     const fetchData = async () => {
       try {
-        checkServer();
-        const vSnap = await getDoc(doc(db, 'settings', 'vertex_config'));
-        if (vSnap.exists()) setVConfig(vSnap.data() as any);
-        
         // Fetch current user data from auth if needed, but we typically use Firestore
         // Assuming we have auth.currentUser.uid
         const { auth } = await import('../firebase');
@@ -528,43 +500,12 @@ export default function AdminPanel({ profile }: { profile: any }) {
     }
   };
 
-  const handleSaveVertex = async () => {
-    setIsSavingV(true);
-    setTestStatus({ type: 'idle' });
-    try {
-      await setDoc(doc(db, 'settings', 'vertex_config'), vConfig);
-      alert('Vertex AI configuration updated successfully.');
-    } catch (err: any) {
-      alert('Failed: ' + err.message);
-    } finally {
-      setIsSavingV(false);
-    }
-  };
-
-  const handleTestConnection = async () => {
-    setIsSavingV(true);
-    setTestStatus({ type: 'idle' });
-    try {
-      const { aiService } = await import('../services/aiService');
-      const response = await aiService.generateText("Ping", vConfig.modelId || "gemini-3-flash-preview");
-      
-      if (response) {
-        setTestStatus({ type: 'success', message: 'Connection Successful! Stable backend is active.' });
-      } else {
-        throw new Error("Received empty response from AI services.");
-      }
-    } catch (err: any) {
-      setTestStatus({ type: 'error', message: err.message });
-    } finally {
-      setIsSavingV(false);
-    }
-  };
-
   const handleDeleteKey = async (id: string) => {
     if (confirm('Are you sure you want to delete this key?')) {
       await deleteDoc(doc(db, 'api_keys', id));
     }
   };
+
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-20">
@@ -596,7 +537,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
           { id: 'coupons', label: 'Coupons', icon: Ticket },
           { id: 'keys', label: 'API Pool', icon: Key },
           { id: 'analytics', label: 'Smart Analytics', icon: BarChart3 },
-          { id: 'vertex', label: 'Vertex AI', icon: Database },
           { id: 'settings', label: 'Settings', icon: SettingsIcon },
         ].map((tab) => (
           <button 
@@ -613,8 +553,8 @@ export default function AdminPanel({ profile }: { profile: any }) {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Content */}
+      <div className="grid grid-cols-1 gap-8">
+        {/* Main Content */}
         <div className="lg:col-span-12">
           <AnimatePresence mode="wait">
             {activeTab === 'users' && (
@@ -1031,37 +971,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
                   </button>
                 </div>
 
-                {/* Secondary Audio Factor (Fallback) */}
-                <div className="p-6 bg-blue-500/5 border border-blue-500/10 rounded-[32px] space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4" /> Secondary Audio Engine (Fallback)
-                      </h4>
-                      <p className="text-[10px] text-zinc-500 font-medium italic mt-1">
-                        Only used for voice generation if the regular API Pool is exhausted or cooling down.
-                      </p>
-                    </div>
-                    <button 
-                      onClick={handleSaveVertex}
-                      disabled={isSavingV}
-                      className="px-4 py-2 bg-blue-500 text-white text-[10px] font-black uppercase tracking-tighter rounded-xl hover:bg-blue-400 transition-all active:scale-95 disabled:opacity-50"
-                    >
-                      {isSavingV ? 'Saving...' : 'Update Fallback'}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
-                    <input
-                      type="password"
-                      value={vConfig.secondaryAudioKey || ''}
-                      onChange={(e) => setVConfig({...vConfig, secondaryAudioKey: e.target.value})}
-                      placeholder="Paste your Secondary Gemini API Key here..."
-                      className="w-full bg-black border border-white/5 rounded-2xl pl-12 pr-4 py-3 text-xs text-white focus:border-blue-500 outline-none transition-all font-mono"
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-4">
                   {keys.map((k) => {
                     const isCooldown = k.coolDownUntil && k.coolDownUntil > now;
@@ -1327,219 +1236,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
                 </div>
               </motion.div>
             )}
-
-            {activeTab === 'vertex' && (
-              <motion.div
-                key="vertex"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-8"
-              >
-                <div className="bg-zinc-950/80 border border-white/5 rounded-[40px] p-8 md:p-10 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-8">
-                    <button 
-                      onClick={checkServer}
-                      className="p-2 hover:bg-white/5 rounded-xl text-zinc-500 transition-all active:rotate-180"
-                    >
-                      <RotateCw className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-6 mb-10">
-                    <div className="p-4 bg-orange-500/10 rounded-3xl">
-                      <Globe className="w-8 h-8 text-orange-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-black italic tracking-tighter uppercase text-white">Production Analytics</h3>
-                      <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Diagnostic suite for auurio.com</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="p-6 bg-black/40 border border-white/5 rounded-3xl">
-                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Server Reachability</p>
-                      <div className="flex items-center gap-3">
-                        <div className={cn("w-3 h-3 rounded-full animate-pulse", serverHealth?.status === 'ok' ? "bg-green-500" : "bg-red-500")} />
-                        <span className="font-black text-white uppercase text-sm tracking-tight">{serverHealth?.status === 'ok' ? 'ONLINE' : 'UNREACHABLE'}</span>
-                      </div>
-                    </div>
-                    <div className="p-6 bg-black/40 border border-white/5 rounded-3xl">
-                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Environment Key</p>
-                      <div className="flex items-center gap-3">
-                        {serverHealth?.hasKey ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <AlertCircle className="w-5 h-5 text-red-500" />
-                        )}
-                        <span className="font-black text-white uppercase text-sm tracking-tight">{serverHealth?.hasKey ? 'DETECTED' : 'MISSING'}</span>
-                      </div>
-                    </div>
-                    <div className="p-6 bg-black/40 border border-white/5 rounded-3xl">
-                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Rescue Key (Firestore)</p>
-                      <div className="flex items-center gap-3">
-                        {vConfig?.primaryApiKey ? (
-                          <ShieldCheck className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <X className="w-5 h-5 text-zinc-700" />
-                        )}
-                        <span className="font-black text-white uppercase text-sm tracking-tight">{vConfig?.primaryApiKey ? 'CONFIGURED' : 'EMPTY'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {!serverHealth?.hasKey && (
-                    <div className="mt-10 p-8 bg-orange-500/10 border border-orange-500/20 rounded-[32px] flex flex-col md:flex-row items-center md:items-start gap-6">
-                      <div className="p-4 bg-orange-500/20 rounded-2xl">
-                        <AlertCircle className="w-6 h-6 text-orange-500" />
-                      </div>
-                      <div className="space-y-3 text-center md:text-left">
-                        <h4 className="font-black text-orange-500 text-lg uppercase tracking-tighter">Primary Key Missing on Hostinger</h4>
-                        <p className="text-zinc-400 text-sm leading-relaxed font-medium">
-                          Your server is running but cannot see <code className="text-white bg-zinc-800 px-1.5 py-0.5 rounded">GEMINI_API_KEY</code>. This is common on Hostinger Shared Hosting.
-                          <br /><br />
-                          <span className="text-white font-bold italic">RESCUE ENABLED:</span> I have modified the system to use your <strong>Primary Key</strong> from the settings below as a fallback. If you can't set it in your environment (.env), simply paste your Gemini API Key in the field below and save.
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          <button 
-                            onClick={() => {
-                              const el = document.getElementById('primary-key-input');
-                              el?.scrollIntoView({ behavior: 'smooth' });
-                              el?.focus();
-                            }}
-                            className="px-6 py-2 bg-orange-500 text-black font-black uppercase tracking-tighter text-xs rounded-xl mt-2 hover:bg-orange-400 transition-all"
-                          >
-                            Set Primary Key
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-zinc-900 border border-white/5 rounded-3xl p-8 space-y-8">
-                <div className="flex items-center justify-between border-b border-white/5 pb-6">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-orange-500/10 rounded-2xl">
-                      <Database className="w-6 h-6 text-orange-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold">Vertex AI (Firebase Managed)</h3>
-                      <p className="text-xs text-zinc-500 font-medium">Use your Google Cloud credits securely via Firebase SDK.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button 
-                      onClick={handleTestConnection}
-                      disabled={isSavingV}
-                      className="flex items-center gap-2 bg-blue-500/10 text-blue-500 font-black uppercase tracking-tighter px-6 py-2.5 rounded-xl hover:bg-blue-500/20 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      <RotateCw className={cn("w-4 h-4", isSavingV && "animate-spin")} />
-                      Test Connection
-                    </button>
-                    <button 
-                      onClick={handleSaveVertex}
-                      disabled={isSavingV}
-                      className="flex items-center gap-2 bg-orange-500 text-black font-black uppercase tracking-tighter px-6 py-2.5 rounded-xl hover:bg-orange-400 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      {isSavingV ? <RotateCw className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-                      Save Changes
-                    </button>
-                  </div>
-                </div>
-
-                {testStatus.type !== 'idle' && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className={cn(
-                      "p-4 rounded-2xl border flex items-center gap-3",
-                      testStatus.type === 'success' ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-red-500/10 border-red-500/20 text-red-500"
-                    )}
-                  >
-                    {testStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-                    <p className="text-xs font-bold uppercase tracking-tight flex-1">{testStatus.message}</p>
-                  </motion.div>
-                )}
-
-                  <div className="space-y-4 bg-black/40 p-6 rounded-2xl border border-white/5" id="primary-key-input">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Hostinger / Production API Key (Rescue Key)</label>
-                    <div className="relative">
-                      <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
-                      <input
-                        type="password"
-                        value={vConfig.primaryApiKey || ''}
-                        onChange={(e) => setVConfig({...vConfig, primaryApiKey: e.target.value})}
-                        placeholder="Paste your Primary Gemini API Key here..."
-                        className="w-full bg-black border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-sm text-white focus:border-orange-500 outline-none transition-all font-mono"
-                      />
-                    </div>
-                    <p className="text-[10px] text-zinc-500 font-medium italic">
-                      Use this if you are on Hostinger and cannot set environment variables. This key overrides the API pool for Story and Image generation to ensure high-quality Vertex outputs.
-                    </p>
-                  </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4 bg-black/40 p-6 rounded-2xl border border-white/5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Enable Vertex Engine</label>
-                      <button 
-                        onClick={() => setVConfig({...vConfig, useFirebaseVertex: !vConfig.useFirebaseVertex})}
-                        className={cn(
-                          "w-12 h-6 rounded-full transition-all relative",
-                          vConfig.useFirebaseVertex ? "bg-orange-500" : "bg-zinc-800"
-                        )}
-                      >
-                        <div className={cn(
-                          "absolute top-1 w-4 h-4 rounded-full bg-white transition-all",
-                          vConfig.useFirebaseVertex ? "right-1" : "left-1"
-                        )} />
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-zinc-600 font-medium leading-relaxed italic">
-                      When enabled, Story Generation and Image Generation will use Vertex AI via your linked Google Cloud Project credits instead of the standard Gemini API.
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Primary Vertex Model</label>
-                    <input
-                      type="text"
-                      value={vConfig.modelId}
-                      onChange={(e) => setVConfig({...vConfig, modelId: e.target.value})}
-                      placeholder="e.g. gemini-2.0-flash"
-                      className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:border-orange-500 outline-none transition-all"
-                    />
-                    <div className="flex flex-wrap gap-2 px-1">
-                      {['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-pro-image-preview'].map(m => (
-                        <button
-                          key={m}
-                          onClick={() => setVConfig({...vConfig, modelId: m})}
-                          className={cn(
-                            "text-[9px] font-bold py-1 px-2 rounded-md transition-colors",
-                            vConfig.modelId === m 
-                              ? "bg-orange-500 text-white" 
-                              : "bg-white/5 hover:bg-white/10 text-zinc-400"
-                          )}
-                        >
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-orange-500/5 border border-orange-500/10 rounded-2xl p-6">
-                  <h4 className="text-xs font-bold text-orange-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4" /> Why did this change?
-                  </h4>
-                  <p className="text-[11px] text-zinc-400 leading-relaxed font-bold uppercase tracking-tight">
-                    We moved from a local Node.js proxy to the <span className="text-white">Vertex AI for Firebase SDK</span>. This allows you to host the app on static platforms (like Hostinger) while still securely using your Google Cloud credits. No service account key is needed in the client-side code anymore — authentication is managed through your Firebase project permissions.
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
           </AnimatePresence>
         </div>
 
@@ -1637,53 +1333,6 @@ export default function AdminPanel({ profile }: { profile: any }) {
             </div>
           )}
         </AnimatePresence>
-
-        {/* Right Content: Instructions */}
-        <div className="lg:col-span-4 space-y-6">
-          <div className="bg-zinc-950 border border-orange-500/20 rounded-3xl p-6 space-y-6">
-            <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-              <Globe className="w-4 h-4 text-orange-500" />
-              Setup Instructions
-            </h4>
-            
-            <div className="space-y-6">
-              <div className="space-y-3">
-                <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Step 1: Project ID</p>
-                <p className="text-xs text-zinc-400 leading-relaxed font-medium">
-                  Go to <a href="https://console.cloud.google.com/" className="text-blue-400 underline inline-flex items-center gap-1">Google Cloud Console <ExternalLink size={10} /></a>. Select your project and copy the <span className="text-white font-bold italic">Project ID</span> from the dashboard.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Step 2: Enable Vertex AI</p>
-                <p className="text-xs text-zinc-400 leading-relaxed font-medium">
-                  Search for "Vertex AI" in the search bar and click <span className="text-white font-bold italic">"Enable All Recommended APIs"</span>.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Step 3: Service Account Key</p>
-                <ol className="text-xs text-zinc-400 space-y-3 list-decimal pl-4 font-medium">
-                  <li>Go to <span className="text-white">IAM & Admin &gt; Service Accounts</span>.</li>
-                  <li>Click <span className="text-white font-bold">+ Create Service Account</span>. Give it a name likes <span className="text-blue-400">"auurio-service"</span>.</li>
-                  <li>Assign Role: <span className="text-orange-400">Vertex AI User</span> (This is critical).</li>
-                  <li>In the Service Account list, click on your new account &gt; <span className="text-white">Keys &gt; Add Key &gt; Create New Key (JSON)</span>.</li>
-                  <li>Download the file, open it in Notepad, and paste ALL text here.</li>
-                </ol>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-zinc-900/50 border border-white/5 rounded-3xl p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Code className="w-5 h-5 text-blue-500" />
-              <h4 className="text-sm font-bold uppercase tracking-widest">Security Note</h4>
-            </div>
-            <p className="text-[11px] text-zinc-500 leading-relaxed font-medium">
-              Auurio uses a secure Node.js proxy to communicate with Vertex AI. Your Service Account credentials are encrypted at rest in Firestore and never exposed to the client-side browser.
-            </p>
-          </div>
-        </div>
       </div>
     </div>
   );

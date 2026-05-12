@@ -1,7 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
-import { db, vertexAI, auth } from "../firebase";
+import { db, auth } from "../firebase";
 import { doc, getDoc, collection, getDocs, setDoc, addDoc, serverTimestamp, increment, onSnapshot } from "firebase/firestore";
-import { getGenerativeModel } from "firebase/ai";
 
 interface UsageLogData {
   userId: string;
@@ -14,22 +13,18 @@ interface UsageLogData {
 }
 
 interface VertexConfig {
-  useFirebaseVertex?: boolean;
   modelId?: string;
-  primaryApiKey?: string;
-  secondaryAudioKey?: string;
 }
 
 class AIService {
   private client: any = null;
-  private audioFallbackClient: any = null;
   private config: VertexConfig | null = null;
   private isInitialized = false;
   private imgenModel = "imagen-3.0-generate-001";
   private imgenFastModel = "imagen-3.0-fast-generate-001";
-  private flashImageModel = "gemini-2.5-flash-image"; 
-  private flash2ImageModel = "gemini-3.1-flash-image-preview";
-  private proImageModel = "gemini-3-pro-image-preview";
+  private flashImageModel = "gemini-2.0-flash-exp"; 
+  private flash2ImageModel = "gemini-2.0-flash-exp";
+  private proImageModel = "gemini-2.0-flash-exp";
 
   private sharedAudioCtx: AudioContext | null = null;
   private pooledClientsCache: any[] | null = null;
@@ -84,26 +79,9 @@ class AIService {
   private async initialize() {
     if (this.isInitialized) return;
     
-    // Set up real-time listener for config
     onSnapshot(doc(db, "settings", "vertex_config"), (snap) => {
       if (snap.exists()) {
-        const newConfig = snap.data() as VertexConfig;
-        this.config = newConfig;
-        
-        if (newConfig.primaryApiKey) {
-          try {
-            this.client = new GoogleGenAI({ apiKey: newConfig.primaryApiKey });
-          } catch (e) {
-            console.error("Auurio: Failed to update client with new config key", e);
-          }
-        }
-        if (newConfig.secondaryAudioKey) {
-          try {
-            this.audioFallbackClient = new GoogleGenAI({ apiKey: newConfig.secondaryAudioKey });
-          } catch (e) {
-            console.error("Auurio: Failed to update fallback client", e);
-          }
-        }
+        this.config = snap.data() as VertexConfig;
       }
     }, (err) => {
       console.warn("Auurio: Config listener failed, using defaults", err);
@@ -120,16 +98,10 @@ class AIService {
         this.config = snap.data() as VertexConfig;
       }
       
-      const apiKey = process.env.GEMINI_API_KEY || 
-                     this.config?.primaryApiKey || 
-                     '';
+      const apiKey = process.env.GEMINI_API_KEY || '';
                      
       if (apiKey) {
         this.client = new GoogleGenAI({ apiKey });
-      }
-
-      if (this.config?.secondaryAudioKey) {
-        this.audioFallbackClient = new GoogleGenAI({ apiKey: this.config.secondaryAudioKey });
       }
     } catch (err) {
       console.warn("Auurio: Initialization error. Falling back.", err);
@@ -141,10 +113,6 @@ class AIService {
   }
 
   private async getModel(modelName: string) {
-    if (this.config?.useFirebaseVertex) {
-      console.log(`Auurio: Using Vertex AI for Firebase (Model: ${modelName})`);
-      return getGenerativeModel(vertexAI, { model: modelName });
-    }
     return this.client.getGenerativeModel({ model: modelName });
   }
 
@@ -171,75 +139,49 @@ class AIService {
       try {
         onProgress?.(`Contacting AI Engine (${modelName})...`);
         
-        // Strategy: Try Server-side proxy first to avoid exposing keys in frontend
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout for AI
-
-          const proxyRes = await fetch("/api/generate-text", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt, model: modelName }),
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          
-          if (proxyRes.ok) {
-            const data = await proxyRes.json();
-            if (data.text) return data.text;
+        // 1. Try Pooled Clients for high-throughput
+        const pooled = await this.getPooledClients();
+        if (pooled.length > 0) {
+          for (const entry of pooled) {
+            try {
+              const response = await entry.client.getGenerativeModel({ model: modelName }).generateContent({
+                contents: [{ role: "user", parts: [{ text: prompt }] }]
+              });
+              
+              if (response?.response?.text()) {
+                const text = response.response.text();
+                // Usage Log
+                this.logUsage({ 
+                  feature: 'story', 
+                  modelId: modelName, 
+                  cost: 0 // Free pool
+                });
+                onProgress?.("Script received via Pool.");
+                this.reportKeyStatus(entry.id, 'success').catch(() => {});
+                return text;
+              }
+            } catch (pooledErr: any) {
+              const errMsg = (pooledErr.message || "").toLowerCase();
+              if (errMsg.includes('429') || errMsg.includes('quota')) {
+                this.reportKeyStatus(entry.id, 'quota', pooledErr.message).catch(() => {});
+              } else if (errMsg.includes('api key') || errMsg.includes('invalid') || errMsg.includes('400')) {
+                this.reportKeyStatus(entry.id, 'error', pooledErr.message).catch(() => {});
+              }
+              continue;
+            }
           }
-        } catch (proxyErr) {
-          console.warn(`Auurio Proxy (${modelName}): Unreachable or Timed out.`, proxyErr);
         }
-
-        // Direct fallback (ONLY works if in AI Studio or if key is provided)
-        const browserKey = process.env.GEMINI_API_KEY || this.config?.primaryApiKey;
-          
-        if (!browserKey && !window.location.hostname.includes("run.app")) {
-            throw new Error("⚠️ Auurio Engine Error: All attempts failed including local fallback. Action: Check if Server is running and GEMINI_API_KEY is configured.");
-        }
-
-        if (!this.client && browserKey) {
-          this.client = new GoogleGenAI({ apiKey: browserKey });
-        }
-
-        if (!this.client) {
-          throw new Error("Auurio: AI Client not initialized. Check API keys.");
-        }
-
-        const response = await this.client.models.generateContent({
-          model: modelName,
-          contents: [{ role: "user", parts: [{ text: prompt }] }]
-        });
-
-      if (response.text) {
-        // Log Usage
-        const tokens = (response as any).usageMetadata || {};
-        const cost = this.calculateCost('story', modelName, tokens.promptTokenCount, tokens.candidatesTokenCount);
-        this.logUsage({ 
-          feature: 'story', 
-          modelId: modelName, 
-          inputTokens: tokens.promptTokenCount, 
-          outputTokens: tokens.candidatesTokenCount, 
-          cost 
-        });
-
-        onProgress?.("Script received and processed.");
-        return response.text;
-      }
         
       } catch (err: any) {
         lastError = err;
-        const msg = err.message || "";
-        console.warn(`Auurio: Attempt ${modelName} failed:`, msg);
+        console.warn(`Auurio: Attempt ${modelName} failed:`, err.message);
         continue;
       }
     }
 
     const finalMsg = lastError?.message?.includes("quota") 
       ? "Auurio AI Services are currently over capacity. Please try again in 5 minutes."
-      : (lastError?.message || "Auurio AI Services encountered an unexpected error.");
+      : (lastError?.message || "Auurio AI Services encountered an unexpected error. Please ensure API Pool keys are valid.");
 
     throw new Error(finalMsg, { cause: lastError });
   }
@@ -256,31 +198,38 @@ class AIService {
       
       const pool = keysSnap.docs
         .map(d => ({ id: d.id, ...d.data() } as any))
-        .filter(d => d.status === 'active' || !d.status) // Default to active if status missing
-        .filter(d => !d.coolDownUntil || d.coolDownUntil < now) 
-        .sort((a, b) => {
-          if ((a.priority || 0) !== (b.priority || 0)) {
-            return (a.priority || 0) - (b.priority || 0);
-          }
-          return (a.lastUsed || 0) - (b.lastUsed || 0);
+        .filter(d => d.status === 'active' || !d.status) 
+        .filter(d => !d.coolDownUntil || d.coolDownUntil < now)
+        .sort((a, b) => (a.priority || 0) - (b.priority || 0));
+
+      if (pool.length === 0) return [];
+
+      // Group by priority to maintain logic but allow random distribution within same priority
+      const priorityGroups: Record<number, any[]> = {};
+      pool.forEach(k => {
+        const p = k.priority || 0;
+        if (!priorityGroups[p]) priorityGroups[p] = [];
+        priorityGroups[p].push(k);
+      });
+
+      const processedPool: any[] = [];
+      const priorityLevels = Object.keys(priorityGroups).map(Number).sort((a, b) => a - b);
+
+      for (const p of priorityLevels) {
+        const group = priorityGroups[p];
+        // Shuffle group
+        for (let i = group.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [group[i], group[j]] = [group[j], group[i]];
+        }
+        group.forEach(k => {
+          processedPool.push({
+            id: k.id,
+            key: k.key,
+            client: new GoogleGenAI({ apiKey: k.key }),
+            priority: p
+          });
         });
-
-      const processedPool = pool.map(best => ({ 
-        id: best.id, 
-        key: best.key, 
-        client: new GoogleGenAI({ apiKey: best.key }),
-        priority: best.priority || 0
-      }));
-
-      // Shuffle the pool to distribute load evenly across keys
-      for (let i = processedPool.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [processedPool[i], processedPool[j]] = [processedPool[j], processedPool[i]];
-      }
-
-      // If everything is empty, fallback to primary if ready
-      if (processedPool.length === 0 && Date.now() > this.primaryExhaustedUntil) {
-        return []; 
       }
 
       this.pooledClientsCache = processedPool;
@@ -664,28 +613,11 @@ class AIService {
         const pooledClients = await this.getPooledClients();
         const clientsToTry: { id: string | null, client: any, isPooled: boolean }[] = [];
         
-        // Use pooled clients first to save quota
+        // ONLY use pooled clients as requested
         pooledClients.forEach(p => clientsToTry.push({ id: p.id, client: p.client, isPooled: true }));
 
-        // Add primary/rescue client as fallback for stability
-        if (this.client && (process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY || this.config?.primaryApiKey)) {
-          if (Date.now() > this.primaryExhaustedUntil) {
-            clientsToTry.push({ id: 'primary-vertex', client: this.client, isPooled: false });
-          }
-        }
-
-        // LAST RESORT: Dedicated Secondary Audio Key (Fall-back)
-        if (this.config?.secondaryAudioKey) {
-          if (Date.now() > this.secondaryExhaustedUntil) {
-            if (!this.audioFallbackClient) {
-              this.audioFallbackClient = new GoogleGenAI({ apiKey: this.config.secondaryAudioKey });
-            }
-            clientsToTry.push({ id: 'secondary-audio-fallback', client: this.audioFallbackClient, isPooled: false });
-          }
-        }
-        
         if (clientsToTry.length === 0) {
-          throw new Error("Narration Engine: All keys (including Rescue Key) are exhausted or cooling down.");
+          throw new Error("Narration Engine: All Pooled Keys are exhausted or cooling down. Please add more keys in Admin Hub.");
         }
 
         // Use ONLY high-stability models for TTS
@@ -719,31 +651,30 @@ STYLE:
 TEXT TO NARRATE:
 ${text}`;
               
-              console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id || 'PRIMARY'} on ${modelId} (Tone: ${pitchLabel}, Speed: ${speedLabel})...`);
+              console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id} on ${modelId} (Tone: ${pitchLabel}, Speed: ${speedLabel})...`);
               
-              const response = await entry.client.models.generateContent({
+              const response = await entry.client.getGenerativeModel({
                 model: modelId,
-                contents: [{ role: 'user', parts: [{ text: narrationPrompt }] }],
-                config: {
+                generationConfig: {
                   responseModalities: ["AUDIO"],
                   speechConfig: {
                     voiceConfig: {
                       prebuiltVoiceConfig: {
                         voiceName: voiceName,
-                        pitch: pitch || 1.0,
-                        speakingRate: speed || 1.0
                       }
                     }
                   }
                 }
+              }).generateContent({
+                contents: [{ role: 'user', parts: [{ text: narrationPrompt }] }]
               });
               
               // Extract audio data from response parts
               let audioData = null;
               let mimeType = 'audio/pcm';
 
-              if (response.candidates?.[0]?.content?.parts) {
-                for (const part of response.candidates[0].content.parts) {
+              if (response.response.candidates?.[0]?.content?.parts) {
+                for (const part of response.response.candidates[0].content.parts) {
                   if (part.inlineData?.data) {
                     audioData = part.inlineData.data;
                     mimeType = part.inlineData.mimeType || 'audio/pcm';
@@ -754,7 +685,7 @@ ${text}`;
               
               if (audioData) {
                 // Log Usage
-                const tokens = (response as any).usageMetadata || {};
+                const tokens = (response.response as any).usageMetadata || {};
                 const cost = this.calculateCost('voice', modelId, tokens.promptTokenCount, tokens.candidatesTokenCount);
                 this.logUsage({ 
                   feature: 'voice', 
@@ -772,19 +703,24 @@ ${text}`;
               const errMsg = (err.message || "").toLowerCase();
               
               if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('exhausted')) {
-                console.warn(`Auurio: Key ${entry.id || 'primary'} Quota on ${modelId}. Rotating...`);
+                console.warn(`Auurio: Key ${entry.id} Quota on ${modelId}. Rotating...`);
                 if (entry.isPooled && entry.id) {
                   await this.reportKeyStatus(entry.id, 'quota', err.message);
-                } else if (entry.id === 'primary-vertex') {
-                  this.primaryExhaustedUntil = Date.now() + (2 * 60 * 1000); 
-                } else if (entry.id === 'secondary-audio-fallback') {
-                  this.secondaryExhaustedUntil = Date.now() + (2 * 60 * 1000);
                 }
                 clientHitQuota = true;
                 break; 
               }
 
-              if (errMsg.includes('not support') || errMsg.includes('modality') || errMsg.includes('invalid') || errMsg.includes('400')) {
+              if (errMsg.includes('api key') || errMsg.includes('invalid') || errMsg.includes('400')) {
+                console.warn(`Auurio: Key ${entry.id} appeared INVALID on ${modelId}. Marking as Error...`);
+                if (entry.isPooled && entry.id) {
+                  await this.reportKeyStatus(entry.id, 'error', err.message);
+                }
+                clientHitQuota = true; // Treats as quota-like fail for this key to force rotation
+                break;
+              }
+
+              if (errMsg.includes('not support') || errMsg.includes('modality')) {
                 continue; // Try next model for this key
               }
               
@@ -864,9 +800,8 @@ ${text}`;
     const framePrompt = `${styleModifiers} ${cinematicKeywords} ${sanitizedPrompt}.`;
 
     const models = [
-      "gemini-2.5-flash-image",
-      "gemini-3.1-flash-image-preview",
-      "imagen-3.0-generate-001"
+      "gemini-2.0-flash-exp",
+      "gemini-1.5-flash",
     ];
 
     const attempt = async (modelIndex: number, currentPrompt: string): Promise<string> => {
@@ -880,77 +815,39 @@ ${text}`;
       try {
         console.log(`Auurio: Rendering Scene -> ${currentModel}`);
         
-        // Strategy: Try Server-side proxy first for high-end engines
-        if (currentModel.includes("imagen")) {
-          try {
-            const proxyRes = await fetch("/api/generate-image", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                prompt: currentPrompt, 
-                model: currentModel,
-                config: { 
-                  numberOfImages: 1,
-                  aspectRatio: width === height ? "1:1" : (width > height ? "16:9" : "9:16")
+        // 1. Try Pooled Clients for multimodal image generation
+        const pooled = await this.getPooledClients();
+        if (pooled.length > 0) {
+          for (const entry of pooled) {
+            try {
+              const response = await entry.client.getGenerativeModel({ model: currentModel }).generateContent({
+                contents: [{ 
+                  role: "user", 
+                  parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }] 
+                }]
+              });
+
+              if (response?.response?.candidates?.[0]?.content?.parts) {
+                for (const part of response.response.candidates[0].content.parts) {
+                  if (part.inlineData) {
+                    this.reportKeyStatus(entry.id, 'success').catch(() => {});
+                    return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                  }
                 }
-              })
-            });
-            
-            if (proxyRes.ok) {
-              const data = await proxyRes.json();
-              if (data.image) {
-                // Log Usage
-                this.logUsage({ feature: 'image', modelId: currentModel, cost: 0.03 });
-                return `data:image/png;base64,${data.image}`;
               }
-            }
-          } catch (proxyErr) {
-            console.warn("Auurio Image Proxy: Unreachable.");
-          }
-        }
-
-        if (currentModel.includes("imagen")) {
-          // Direct fallback check
-          if (!process.env.GEMINI_API_KEY && !this.config?.primaryApiKey && !window.location.hostname.includes("run.app")) {
-            throw new Error("⚠️ Image Engine Error: Primary GEMINI_API_KEY required. Set one in Admin Hub > Vertex AI.");
-          }
-          
-          // Standard Imagen via @google/genai (Direct)
-          const response = await this.client.models.generateImages({
-            model: currentModel,
-            prompt: currentPrompt,
-            config: {
-              numberOfImages: 1,
-              aspectRatio: width === height ? "1:1" : (width > height ? "16:9" : "9:16")
-            }
-          });
-          const bytes = response?.generatedImages?.[0]?.image?.imageBytes;
-          if (bytes) {
-            // Log Usage
-            this.logUsage({ feature: 'image', modelId: currentModel, cost: 0.03 });
-            const base64 = typeof bytes === 'string' ? bytes : this.uint8ArrayToBase64(bytes as Uint8Array);
-            return `data:image/png;base64,${base64}`;
-          }
-        } else {
-          // Nano Banana series (Direct)
-          if (!process.env.GEMINI_API_KEY && !this.config?.primaryApiKey && !window.location.hostname.includes("run.app")) {
-            throw new Error("⚠️ High-Res Generation requires GEMINI_API_KEY. Set one in Admin Hub > Vertex AI.");
-          }
-          const response = await this.client.models.generateContent({
-            model: currentModel,
-            contents: {
-              parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }]
-            }
-          });
-
-          for (const part of response.candidates[0].content.parts) {
-            if (part.inlineData) {
-              return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+            } catch (pooledErr: any) {
+              const errMsg = (pooledErr.message || "").toLowerCase();
+              if (errMsg.includes('429') || errMsg.includes('quota')) {
+                this.reportKeyStatus(entry.id, 'quota', pooledErr.message).catch(() => {});
+              } else if (errMsg.includes('api key') || errMsg.includes('invalid') || errMsg.includes('400')) {
+                this.reportKeyStatus(entry.id, 'error', pooledErr.message).catch(() => {});
+              }
+              continue;
             }
           }
         }
 
-        throw new Error("No image data returned");
+        throw new Error("No image data returned from pool");
 
       } catch (err: any) {
         const errMsg = err.message || "Unknown error";

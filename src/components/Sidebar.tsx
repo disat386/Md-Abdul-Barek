@@ -7,7 +7,8 @@ import {
   Image as ImageIcon, 
   ScrollText, 
   Settings,
-  ShieldCheck
+  ShieldCheck,
+  Mic
 } from 'lucide-react';
 import { cn } from '../utils';
 
@@ -19,6 +20,7 @@ export default function Sidebar({ role }: SidebarProps) {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/cine', icon: Film, label: 'CineAura' },
+    { to: '/voice', icon: Mic, label: 'CineVoice' },
     { to: '/reel', icon: Video, label: 'ReelAura' },
     { to: '/thumb', icon: ImageIcon, label: 'ThumbAura' },
     { to: '/script', icon: ScrollText, label: 'Scripting' },

@@ -5,7 +5,8 @@ import {
   Film, 
   Video, 
   ImageIcon, 
-  ScrollText
+  ScrollText,
+  Mic
 } from 'lucide-react';
 import { cn } from '../utils';
 
@@ -13,6 +14,7 @@ export default function MobileNav() {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Home' },
     { to: '/cine', icon: Film, label: 'Cine' },
+    { to: '/voice', icon: Mic, label: 'Voice' },
     { to: '/reel', icon: Video, label: 'Reel' },
     { to: '/thumb', icon: ImageIcon, label: 'Thumb' },
     { to: '/script', icon: ScrollText, label: 'Script' },
