@@ -129,8 +129,9 @@ class AIService {
 
     const models = [
       modelOverride || this.config?.modelId || "gemini-3-flash-preview",
-      "gemini-3.1-pro-preview",
-      "gemini-flash-latest"
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-2.0-flash-lite-preview"
     ];
 
     let lastError: any = null;
@@ -623,7 +624,10 @@ class AIService {
         // Use ONLY high-stability models for TTS
         const audioModels = [
           "gemini-3.1-flash-tts-preview",
-          "gemini-3-flash-preview"
+          "gemini-3-flash-preview",
+          "gemini-2.0-flash",
+          "gemini-2.0-flash-lite-preview",
+          "gemini-1.5-flash" 
         ];
         
         for (const entry of clientsToTry) {
@@ -800,7 +804,8 @@ ${text}`;
     const framePrompt = `${styleModifiers} ${cinematicKeywords} ${sanitizedPrompt}.`;
 
     const models = [
-      "gemini-2.0-flash-exp",
+      "gemini-3-flash-preview",
+      "gemini-2.0-flash",
       "gemini-1.5-flash",
     ];
 
