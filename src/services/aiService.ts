@@ -128,9 +128,9 @@ class AIService {
     await this.initialize();
 
     const models = [
-      modelOverride || this.config?.modelId || "gemini-3-flash-preview",
-      "gemini-2.0-flash",
+      modelOverride || this.config?.modelId || "gemini-2.0-flash",
       "gemini-1.5-flash",
+      "gemini-1.5-flash-8b",
       "gemini-2.0-flash-lite-preview"
     ];
 
@@ -621,13 +621,11 @@ class AIService {
           throw new Error("Narration Engine: All Pooled Keys are exhausted or cooling down. Please add more keys in Admin Hub.");
         }
 
-        // Use ONLY high-stability models for TTS
+        // Use ONLY high-stability models for TTS / Audio Modality
         const audioModels = [
-          "gemini-3.1-flash-tts-preview",
-          "gemini-3-flash-preview",
           "gemini-2.0-flash",
-          "gemini-2.0-flash-lite-preview",
-          "gemini-1.5-flash" 
+          "gemini-1.5-flash",
+          "gemini-1.5-flash-8b"
         ];
         
         for (const entry of clientsToTry) {
@@ -804,7 +802,6 @@ ${text}`;
     const framePrompt = `${styleModifiers} ${cinematicKeywords} ${sanitizedPrompt}.`;
 
     const models = [
-      "gemini-3-flash-preview",
       "gemini-2.0-flash",
       "gemini-1.5-flash",
     ];
