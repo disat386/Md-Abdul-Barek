@@ -414,8 +414,10 @@ export default function CineVoice({ profile }: { profile: any }) {
           <div className="flex-1 flex flex-col">
             <div className="h-16 md:h-20 border-b border-white/5 flex items-center justify-between px-8 bg-black/10">
               <div className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-purple-500 animate-pulse' : 'bg-green-500'}`} />
-                <span className="text-[10px] font-black text-white uppercase tracking-widest italic">{statusMessage || 'Auurio Voice Engine Active'}</span>
+                <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-purple-500 animate-pulse' : (error ? 'bg-red-500' : 'bg-green-500')}`} />
+                <span className={`text-[10px] font-black uppercase tracking-widest italic ${error ? 'text-red-500' : 'text-white'}`}>
+                  {error ? `ERROR: ${error}` : (statusMessage || 'Auurio Voice Engine Active')}
+                </span>
               </div>
               
               {activeStep === 'output' && audioUrl && (
@@ -470,7 +472,7 @@ export default function CineVoice({ profile }: { profile: any }) {
                       placeholder="Refine your narrative here..."
                     />
                     <div className="flex items-center justify-center gap-8 py-4 bg-black/20 border border-white/5 rounded-3xl">
-                      <button onClick={() => aiService.speak(fullScript, language)} className="flex items-center gap-2 text-xs font-black uppercase text-zinc-500 hover:text-white transition-colors">
+                      <button onClick={() => handlePreviewVoice("This is a quick preview of my expressive cinematic voice.", voice)} className="flex items-center gap-2 text-xs font-black uppercase text-zinc-500 hover:text-white transition-colors">
                         <Volume2 size={16} /> Preview Voice
                       </button>
                       <div className="w-px h-6 bg-zinc-800" />

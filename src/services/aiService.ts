@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { db, auth } from "../firebase";
 import { doc, getDoc, collection, getDocs, setDoc, addDoc, serverTimestamp, increment, onSnapshot } from "firebase/firestore";
 
@@ -101,12 +101,28 @@ class AIService {
       const apiKey = process.env.GEMINI_API_KEY || '';
                      
       if (apiKey) {
-        this.client = new GoogleGenAI({ apiKey });
+        this.client = new GoogleGenAI({ 
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            }
+          }
+        });
       }
     } catch (err) {
       console.warn("Auurio: Initialization error. Falling back.", err);
       const apiKey = process.env.GEMINI_API_KEY || '';
-      if (apiKey) this.client = new GoogleGenAI({ apiKey });
+      if (apiKey) {
+        this.client = new GoogleGenAI({ 
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            }
+          }
+        });
+      }
     }
     
     this.isInitialized = true;
@@ -128,10 +144,10 @@ class AIService {
     await this.initialize();
 
     const models = [
-      modelOverride || this.config?.modelId || "gemini-3-flash-preview",
-      "gemini-2.0-flash",
-      "gemini-2.0-flash-lite-preview",
+      modelOverride || this.config?.modelId || "gemini-2.0-flash",
       "gemini-1.5-flash",
+      "gemini-3-flash-preview",
+      "gemini-2.0-flash-lite-preview",
       "gemini-1.5-flash-8b",
       "gemini-1.5-pro"
     ];
@@ -145,42 +161,55 @@ class AIService {
         // 1. Try Pooled Clients for high-throughput
         const pooled = await this.getPooledClients();
         if (pooled.length === 0) {
-          console.error("Auurio: API Key Pool is empty. Please check Admin Hub.");
-          // We don't throw yet, maybe some global client exists? But per rules we should.
+          console.warn("Auurio: API Key Pool is empty. Using global client if available.");
+          if (this.client) {
+            try {
+              const response = await this.client.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts: [{ text: prompt }] }]
+              });
+              if (response.text) return response.text;
+            } catch (e) {
+              lastError = e;
+            }
+          }
         }
         
         for (const entry of pooled) {
           try {
-            const genModel = entry.client.getGenerativeModel({ model: modelName });
-            const response = await genModel.generateContent({
+            const response = await entry.client.models.generateContent({
+              model: modelName,
               contents: [{ role: "user", parts: [{ text: prompt }] }]
             });
               
-              if (response?.response?.text()) {
-                const text = response.response.text();
-                // Usage Log
-                this.logUsage({ 
-                  feature: 'story', 
-                  modelId: modelName, 
-                  cost: 0 // Free pool
-                });
-                onProgress?.("Script received via Pool.");
-                this.reportKeyStatus(entry.id, 'success').catch(() => {});
-                return text;
-              }
-            } catch (pooledErr: any) {
-              const errMsg = (pooledErr.message || "").toLowerCase();
-              if (errMsg.includes('429') || errMsg.includes('quota')) {
-                this.reportKeyStatus(entry.id, 'quota', pooledErr.message).catch(() => {});
-              } else if (errMsg.includes('api key') || errMsg.includes('invalid') || errMsg.includes('400')) {
-                this.reportKeyStatus(entry.id, 'error', pooledErr.message).catch(() => {});
-              }
-              continue;
+            if (response.text) {
+              const text = response.text;
+              // Usage Log
+              this.logUsage({ 
+                feature: 'story', 
+                modelId: modelName, 
+                cost: 0 // Free pool
+              });
+              onProgress?.("Script received via Pool.");
+              this.reportKeyStatus(entry.id, 'success').catch(() => {});
+              return text;
             }
+          } catch (pooledErr: any) {
+            lastError = pooledErr; // Capture error from the pool
+            const errMsg = (pooledErr.message || "").toLowerCase();
+            console.warn(`Auurio: Key ${entry.id} failed for ${modelName}:`, pooledErr.message);
+            
+            if (errMsg.includes('429') || errMsg.includes('quota')) {
+              this.reportKeyStatus(entry.id, 'quota', pooledErr.message).catch(() => {});
+            } else if (errMsg.includes('api key') || errMsg.includes('invalid') || errMsg.includes('400')) {
+              this.reportKeyStatus(entry.id, 'error', pooledErr.message).catch(() => {});
+            }
+            continue;
           }
+        }
       } catch (err: any) {
         lastError = err;
-        console.warn(`Auurio: Attempt ${modelName} failed:`, err.message);
+        console.warn(`Auurio: Attempt ${modelName} failed contextually:`, err.message);
         continue;
       }
     }
@@ -194,21 +223,25 @@ class AIService {
   
   private async getPooledClients(): Promise<{ id: string, key: string, client: any, priority: number }[]> {
     const now = Date.now();
-    // Cache the pool for 15 seconds to be more reactive to quota changes
-    if (this.pooledClientsCache && (now - this.lastPoolFetch < 15000)) {
+    // Cache the pool for 30 seconds to reduce Firestore reads
+    if (this.pooledClientsCache && (now - this.lastPoolFetch < 30000)) {
       return this.pooledClientsCache;
     }
 
     try {
+      // Use a slightly more aggressive query to get active keys directly
       const keysSnap = await getDocs(collection(db, 'api_keys'));
       
       const pool = keysSnap.docs
         .map(d => ({ id: d.id, ...d.data() } as any))
-        .filter(d => d.status === 'active' || !d.status) 
+        .filter(d => (d.status === 'active' || !d.status) && d.key && d.key.length > 20) 
         .filter(d => !d.coolDownUntil || d.coolDownUntil < now)
         .sort((a, b) => (a.priority || 0) - (b.priority || 0));
 
-      if (pool.length === 0) return [];
+      if (pool.length === 0) {
+        console.warn("Auurio: Pool fetch returned 0 active keys. Total keys checked:", keysSnap.docs.length);
+        return [];
+      }
 
       // Group by priority to maintain logic but allow random distribution within same priority
       const priorityGroups: Record<number, any[]> = {};
@@ -232,7 +265,14 @@ class AIService {
           processedPool.push({
             id: k.id,
             key: k.key,
-            client: new GoogleGenAI({ apiKey: k.key }),
+            client: new GoogleGenAI({ 
+              apiKey: k.key,
+              httpOptions: {
+                headers: {
+                  'User-Agent': 'aistudio-build',
+                }
+              }
+            }),
             priority: p
           });
         });
@@ -628,11 +668,11 @@ class AIService {
 
         // Use ONLY high-stability models for TTS / Audio Modality
         const audioModels = [
+          "gemini-2.0-flash",
+          "gemini-1.5-flash",
           "gemini-3.1-flash-tts-preview",
           "gemini-3-flash-preview",
-          "gemini-2.0-flash",
           "gemini-2.0-flash-lite-preview",
-          "gemini-1.5-flash",
           "gemini-1.5-flash-8b"
         ];
         
@@ -642,8 +682,12 @@ class AIService {
           for (const modelId of audioModels) {
             try {
               const voiceNameMap: Record<string, string> = {
-                'charon': 'Charon', 'zephyr': 'Aoede', 'fenrir': 'Fenrir',
-                'kore': 'Kore', 'puck': 'Puck', 'aoede': 'Aoede'
+                'charon': 'Charon', 
+                'zephyr': 'Zephyr', 
+                'fenrir': 'Fenrir',
+                'kore': 'Kore', 
+                'puck': 'Puck', 
+                'aoede': 'Aoede'
               };
               const voiceName = voiceNameMap[voiceId] || 'Puck';
               
@@ -663,10 +707,11 @@ ${text}`;
               
               console.log(`Auurio: Narrating Segment ${current}/${total} using key ${entry.id} on ${modelId} (Tone: ${pitchLabel}, Speed: ${speedLabel})...`);
               
-              const response = await entry.client.getGenerativeModel({
+              const response = await entry.client.models.generateContent({
                 model: modelId,
-                generationConfig: {
-                  responseModalities: ["AUDIO"],
+                contents: [{ role: 'user', parts: [{ text: narrationPrompt }] }],
+                config: {
+                  responseModalities: [Modality.AUDIO],
                   speechConfig: {
                     voiceConfig: {
                       prebuiltVoiceConfig: {
@@ -675,16 +720,14 @@ ${text}`;
                     }
                   }
                 }
-              }).generateContent({
-                contents: [{ role: 'user', parts: [{ text: narrationPrompt }] }]
               });
               
               // Extract audio data from response parts
               let audioData = null;
               let mimeType = 'audio/pcm';
 
-              if (response.response.candidates?.[0]?.content?.parts) {
-                for (const part of response.response.candidates[0].content.parts) {
+              if (response.candidates?.[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
                   if (part.inlineData?.data) {
                     audioData = part.inlineData.data;
                     mimeType = part.inlineData.mimeType || 'audio/pcm';
@@ -695,7 +738,7 @@ ${text}`;
               
               if (audioData) {
                 // Log Usage
-                const tokens = (response.response as any).usageMetadata || {};
+                const tokens = (response as any).usageMetadata || {};
                 const cost = this.calculateCost('voice', modelId, tokens.promptTokenCount, tokens.candidatesTokenCount);
                 this.logUsage({ 
                   feature: 'voice', 
@@ -708,9 +751,10 @@ ${text}`;
                 return await this.processAudioResponse(audioData, mimeType, entry.id, current, total, modelId, entry.isPooled);
               }
               
-              console.warn(`Auurio: ${modelId} gave no audio part.`);
+              console.warn(`Auurio: ${modelId} gave no audio part for key ${entry.id}.`);
             } catch (err: any) {
               const errMsg = (err.message || "").toLowerCase();
+              lastError = err;
               
               if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('exhausted')) {
                 console.warn(`Auurio: Key ${entry.id} Quota on ${modelId}. Rotating...`);
@@ -718,7 +762,7 @@ ${text}`;
                   await this.reportKeyStatus(entry.id, 'quota', err.message);
                 }
                 clientHitQuota = true;
-                break; 
+                break; // Skip rest of models for this key
               }
 
               if (errMsg.includes('api key') || errMsg.includes('invalid') || errMsg.includes('400')) {
@@ -727,14 +771,15 @@ ${text}`;
                   await this.reportKeyStatus(entry.id, 'error', err.message);
                 }
                 clientHitQuota = true; // Treats as quota-like fail for this key to force rotation
-                break;
+                break; // Skip rest of models for this key
               }
 
-              if (errMsg.includes('not support') || errMsg.includes('modality')) {
+              if (errMsg.includes('not support') || errMsg.includes('modality') || errMsg.includes('not found') || errMsg.includes('404')) {
+                console.warn(`Auurio: Model ${modelId} not available or doesn't support audio for key ${entry.id}. Trying next model...`);
                 continue; // Try next model for this key
               }
               
-              console.error(`Auurio: Segment ${current} Error via ${modelId}:`, err.message);
+              console.error(`Auurio: Segment ${current} Error via ${modelId} on key ${entry.id}:`, err.message);
             }
           }
           if (clientHitQuota) continue; // Try next key
@@ -831,15 +876,16 @@ ${text}`;
         if (pooled.length > 0) {
           for (const entry of pooled) {
             try {
-              const response = await entry.client.getGenerativeModel({ model: currentModel }).generateContent({
+              const response = await entry.client.models.generateContent({
+                model: currentModel,
                 contents: [{ 
                   role: "user", 
                   parts: [{ text: `Generate a photorealistic high-resolution cinematic masterpiece matching exactly this description: ${currentPrompt}` }] 
                 }]
               });
 
-              if (response?.response?.candidates?.[0]?.content?.parts) {
-                for (const part of response.response.candidates[0].content.parts) {
+              if (response.candidates?.[0]?.content?.parts) {
+                for (const part of response.candidates[0].content.parts) {
                   if (part.inlineData) {
                     this.reportKeyStatus(entry.id, 'success').catch(() => {});
                     return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
